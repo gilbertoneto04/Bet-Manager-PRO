@@ -68,7 +68,8 @@ export interface Account {
   card?: string;
   house: string;
   depositValue: number;
-  status: 'ACTIVE' | 'LIMITED' | 'REPLACEMENT';
+  status: 'ACTIVE' | 'LIMITED' | 'REPLACEMENT' | 'DELETED';
+  deletionReason?: string;
   owner?: string;
   tags: string[];
   createdAt: string;
@@ -85,4 +86,4 @@ export interface LogEntry {
   timestamp: string;
 }
 
-export type TabView = 'DASHBOARD' | 'NEW_REQUEST' | 'HISTORY' | 'ACCOUNTS_ACTIVE' | 'ACCOUNTS_LIMITED' | 'ACCOUNTS_REPLACEMENT' | 'PACKS' | 'SETTINGS' | 'INSIGHTS';
+export type TabView = 'DASHBOARD' | 'NEW_REQUEST' | 'HISTORY' | 'ACCOUNTS_ACTIVE' | 'ACCOUNTS_LIMITED' | 'ACCOUNTS_REPLACEMENT' | 'ACCOUNTS_DELETED' | 'PACKS' | 'SETTINGS' | 'INSIGHTS';

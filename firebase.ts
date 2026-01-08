@@ -3,7 +3,7 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getAnalytics } from "firebase/analytics";
 
-// Configuração fornecida
+// Configuração fornecida pelo usuário
 const firebaseConfig = {
   apiKey: "AIzaSyBIdLRqRg5dTyD3A2YNkbGed6RhyXnDXLY",
   authDomain: "betmanager-2814a.firebaseapp.com",
@@ -14,10 +14,10 @@ const firebaseConfig = {
   measurementId: "G-MY6DZ5BYN7"
 };
 
-// Initialize Firebase
+// Inicializa o Firebase
 const app = initializeApp(firebaseConfig);
 
-// Exportar os serviços necessários para o App funcionar
+// Exporta os serviços que o App.tsx e outros componentes utilizam
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const analytics = getAnalytics(app);

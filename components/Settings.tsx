@@ -7,6 +7,7 @@ import { collection, addDoc, deleteDoc, doc, query, where, getDocs } from 'fireb
 interface SettingsProps {
   houses: string[];
   setHouses: (houses: string[]) => void;
+  onReorderHouses?: (newHouses: string[]) => void;
   taskTypes: { label: string; value: string }[];
   setTaskTypes: (types: { label: string; value: string }[]) => void;
   pixKeys: PixKey[];
@@ -22,9 +23,11 @@ interface SettingsProps {
 export const Settings: React.FC<SettingsProps> = ({ 
   houses, 
   setHouses,
+  onReorderHouses,
   taskTypes, 
   pixKeys,
   currentUser, users, onUpdateUser, onUpdateUserRole,
+  onReset,
   logAction 
 }) => {
   const [newHouse, setNewHouse] = useState('');
@@ -43,7 +46,8 @@ export const Settings: React.FC<SettingsProps> = ({
   const handleAddHouse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newHouse.trim()) {
-      await addDoc(collection(db, 'config_houses'), { name: newHouse.trim() });
+      // Use max order + 1
+      await addDoc(collection(db, 'config_houses'), { name: newHouse.trim(), order: houses.length });
       logAction('Configuração: Casas', `Adicionou a casa: ${newHouse.trim()}`);
       setNewHouse('');
     }
@@ -58,7 +62,6 @@ export const Settings: React.FC<SettingsProps> = ({
     logAction('Configuração: Casas', `Removeu a casa: ${houseName}`);
   };
 
-  // DnD Handlers for Houses (Visual Only for now as DB does not support order yet)
   const handleHouseDragStart = (e: React.DragEvent, index: number) => {
       setDraggedHouseIndex(index);
       e.dataTransfer.effectAllowed = "move";
@@ -76,7 +79,11 @@ export const Settings: React.FC<SettingsProps> = ({
       const [draggedItem] = newHouses.splice(draggedHouseIndex, 1);
       newHouses.splice(targetIndex, 0, draggedItem);
       
-      setHouses(newHouses); // Optimistic UI update
+      // Optimistic visual update is tricky with parent props, 
+      // but we call the parent handler to save it to DB
+      if (onReorderHouses) {
+          onReorderHouses(newHouses);
+      }
       setDraggedHouseIndex(null);
   };
 
@@ -138,6 +145,15 @@ export const Settings: React.FC<SettingsProps> = ({
            <h2 className="text-2xl font-bold text-white mb-2">Configurações</h2>
            <p className="text-slate-400">Gerencie as opções disponíveis no sistema.</p>
         </div>
+        {onReset && (
+            <button 
+                onClick={onReset}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-700 hover:border-slate-500 transition-all text-sm"
+            >
+                <RotateCcw size={16} />
+                Restaurar Padrões
+            </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -190,10 +206,13 @@ export const Settings: React.FC<SettingsProps> = ({
 
         {/* Houses Configuration */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-          <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>
-            Casas de Aposta <span className="text-xs font-normal text-slate-500 ml-2">(Arraste para reordenar visualmente)</span>
-          </h3>
+          <div className="flex justify-between items-start mb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>
+                Casas de Aposta 
+              </h3>
+              <span className="text-[10px] text-slate-500 max-w-[120px] text-right">Arraste para reordenar a lista globalmente</span>
+          </div>
           
           <form onSubmit={handleAddHouse} className="flex gap-2 mb-6">
             <input

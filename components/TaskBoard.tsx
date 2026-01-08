@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Task, TaskStatus, TaskType, Pack, PixKey, User } from '../types';
 import { TASK_STATUS_LABELS } from '../constants';
 import { StatusBadge } from './StatusBadge';
-import { CheckCircle2, Clock, PlayCircle, Plus, LayoutList, Layers, Trash2, AlertOctagon, Package, Landmark, Pencil, X, GripVertical } from 'lucide-react';
+import { CheckCircle2, Clock, PlayCircle, Plus, LayoutList, Layers, Trash2, AlertOctagon, Package, Landmark, Pencil, X, GripVertical, RotateCcw } from 'lucide-react';
 
 interface TaskBoardProps {
   tasks: Task[];
@@ -212,9 +212,18 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
   const renderTaskActions = (task: Task) => {
     if (task.status === TaskStatus.EXCLUIDA) {
         return (
-            <div className="col-span-2 text-center text-xs text-red-400 bg-red-500/5 py-2 rounded border border-red-500/10">
-                Excluída em {new Date(task.updatedAt).toLocaleDateString()}
-                {task.deletionReason && <span className="block mt-1 italic text-slate-500">"{task.deletionReason}"</span>}
+            <div className="col-span-2 space-y-2">
+                <div className="text-center text-xs text-red-400 bg-red-500/5 py-2 rounded border border-red-500/10">
+                    Excluída em {new Date(task.updatedAt).toLocaleDateString()}
+                    {task.deletionReason && <span className="block mt-1 italic text-slate-500">"{task.deletionReason}"</span>}
+                </div>
+                <button
+                    onClick={() => handleAction(task, 'PENDENTE')}
+                    className="flex items-center justify-center gap-2 w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium transition-colors border border-slate-700"
+                >
+                    <RotateCcw size={14} />
+                    Recuperar Pendência
+                </button>
             </div>
         );
     }

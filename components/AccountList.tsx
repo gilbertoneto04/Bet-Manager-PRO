@@ -1,22 +1,82 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Account, Pack, PixKey, User } from '../types';
-import { Ban, DollarSign, User as UserIcon, Mail, AlertTriangle, Search, Plus, Pencil, Save, X, CreditCard, RefreshCw, Package, Tag, Landmark } from 'lucide-react';
+import { Ban, DollarSign, User as UserIcon, Mail, AlertTriangle, Search, Plus, Pencil, Save, X, CreditCard, RefreshCw, Package, Tag, Landmark, RotateCcw, Trash2 } from 'lucide-react';
 
 interface AccountListProps {
   accounts: Account[];
-  type: 'ACTIVE' | 'LIMITED' | 'REPLACEMENT';
+  type: 'ACTIVE' | 'LIMITED' | 'REPLACEMENT' | 'DELETED';
   packs: Pack[];
   pixKeys: PixKey[];
   currentUser: User | null;
   onLimit?: (accountId: string, createWithdrawal: boolean, pixInfo?: string) => void;
   onReplacement?: (accountId: string, createWithdrawal: boolean, pixInfo?: string) => void;
+  onWithdraw?: (accountId: string, pixInfo?: string) => void;
+  onReactivate?: (accountId: string) => void;
+  onDelete?: (accountId: string, reason: string) => void;
   onSave?: (account: Account, packIdToDeduct?: string) => void;
   availableHouses: string[];
 }
 
-export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs, pixKeys, currentUser, onLimit, onReplacement, onSave, availableHouses }) => {
+// Extracted Component to prevent re-render focus loss
+const PixSelectionSection: React.FC<{
+    mode: 'SAVED' | 'NEW' | 'NONE';
+    setMode: (m: 'SAVED' | 'NEW' | 'NONE') => void;
+    selectedId: string;
+    setSelectedId: (id: string) => void;
+    newString: string;
+    setNewString: (s: string) => void;
+    pixKeys: PixKey[];
+}> = ({ mode, setMode, selectedId, setSelectedId, newString, setNewString, pixKeys }) => (
+    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 mb-4 animate-fadeIn">
+        <label className="text-sm text-slate-400 block mb-2">Destino do Saque (Opcional)</label>
+        <div className="flex gap-2 mb-3">
+            <button 
+                onClick={() => setMode('SAVED')}
+                className={`flex-1 py-2 text-xs rounded-lg border ${mode === 'SAVED' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-600 text-slate-400'}`}
+            >
+                Chave Salva
+            </button>
+            <button 
+                onClick={() => setMode('NEW')}
+                className={`flex-1 py-2 text-xs rounded-lg border ${mode === 'NEW' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-600 text-slate-400'}`}
+            >
+                Nova / Manual
+            </button>
+        </div>
+
+        {mode === 'SAVED' && (
+            <select
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+            >
+                <option value="">Selecione uma chave...</option>
+                {pixKeys.map(k => (
+                    <option key={k.id} value={k.id}>{k.name} - {k.bank} ({k.key})</option>
+                ))}
+            </select>
+        )}
+
+        {mode === 'NEW' && (
+            <input 
+                type="text"
+                value={newString}
+                onChange={(e) => setNewString(e.target.value)}
+                placeholder="Digite a chave Pix (CPF, Email, etc)..."
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+            />
+        )}
+    </div>
+);
+
+
+export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs, pixKeys, currentUser, onLimit, onReplacement, onWithdraw, onReactivate, onDelete, onSave, availableHouses }) => {
   const [selectedAccountForLimit, setSelectedAccountForLimit] = useState<Account | null>(null);
   const [selectedAccountForReplacement, setSelectedAccountForReplacement] = useState<Account | null>(null);
+  const [selectedAccountForWithdrawal, setSelectedAccountForWithdrawal] = useState<Account | null>(null);
+  const [selectedAccountForDeletion, setSelectedAccountForDeletion] = useState<Account | null>(null);
+  const [deletionReason, setDeletionReason] = useState('');
+  
   const [editingAccount, setEditingAccount] = useState<Partial<Account> | null>(null);
   
   // Withdrawal Logic (Pix Selection)
@@ -38,7 +98,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
 
   // Auto-select default key when modal opens
   useEffect(() => {
-    if (selectedAccountForLimit || selectedAccountForReplacement) {
+    if (selectedAccountForLimit || selectedAccountForReplacement || selectedAccountForWithdrawal) {
         if (currentUser?.defaultPixKeyId) {
             setPixSelectionMode('SAVED');
             setSelectedPixId(currentUser.defaultPixKeyId);
@@ -47,17 +107,19 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
             setSelectedPixId('');
         }
     }
-  }, [selectedAccountForLimit, selectedAccountForReplacement, currentUser]);
+  }, [selectedAccountForLimit, selectedAccountForReplacement, selectedAccountForWithdrawal, currentUser]);
 
   const getTitle = () => {
       if (type === 'ACTIVE') return 'Contas em Uso';
       if (type === 'LIMITED') return 'Contas Limitadas';
+      if (type === 'DELETED') return 'Contas Excluídas';
       return 'Contas em Reposição';
   };
 
   const getSubtitle = () => {
       if (type === 'ACTIVE') return 'Gerencie as contas ativas na operação';
       if (type === 'LIMITED') return 'Histórico de contas limitadas';
+      if (type === 'DELETED') return 'Contas removidas do sistema (Lixeira)';
       return 'Contas defeituosas aguardando reposição';
   };
 
@@ -81,6 +143,9 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
   const resetModals = () => {
       setSelectedAccountForLimit(null);
       setSelectedAccountForReplacement(null);
+      setSelectedAccountForWithdrawal(null);
+      setSelectedAccountForDeletion(null);
+      setDeletionReason('');
       setPixSelectionMode('SAVED');
       setSelectedPixId('');
       setNewPixString('');
@@ -117,6 +182,39 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
         resetModals();
      }
   };
+  
+  const handleWithdrawalClick = (account: Account) => {
+      setSelectedAccountForWithdrawal(account);
+  };
+  
+  const confirmWithdrawal = () => {
+      if (selectedAccountForWithdrawal && onWithdraw) {
+          onWithdraw(selectedAccountForWithdrawal.id, getPixInfoString());
+          resetModals();
+      }
+  };
+
+  const handleDeleteClick = (account: Account) => {
+      setSelectedAccountForDeletion(account);
+      setDeletionReason('');
+  };
+
+  const confirmDeletion = () => {
+      if (selectedAccountForDeletion && onDelete) {
+          onDelete(selectedAccountForDeletion.id, deletionReason);
+          resetModals();
+      }
+  };
+  
+  const handleReactivateClick = (account: Account) => {
+      const msg = type === 'DELETED' 
+        ? `Deseja restaurar a conta ${account.name} (será movida para ATIVAS)?`
+        : `Deseja mover a conta ${account.name} de volta para as ATIVAS?`;
+        
+      if(confirm(msg) && onReactivate) {
+          onReactivate(account.id);
+      }
+  };
 
   const handleEdit = (account: Account) => {
     setEditingAccount({ ...account, tags: account.tags || [] });
@@ -130,7 +228,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       depositValue: 0,
       password: '',
       card: '',
-      status: type, // Default status is the current tab type
+      status: type !== 'DELETED' ? type : 'ACTIVE', // Default status is current tab type (unless deleted)
       tags: [],
       owner: currentUser?.name || '' // Default owner is current user
     });
@@ -168,50 +266,6 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       setEditingAccount(null);
     }
   };
-
-  // Sub-component for Pix Selection in Modals
-  const PixSelectionSection = () => (
-      <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 mb-4 animate-fadeIn">
-          <label className="text-sm text-slate-400 block mb-2">Destino do Saque (Opcional)</label>
-          <div className="flex gap-2 mb-3">
-              <button 
-                onClick={() => setPixSelectionMode('SAVED')}
-                className={`flex-1 py-2 text-xs rounded-lg border ${pixSelectionMode === 'SAVED' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-600 text-slate-400'}`}
-              >
-                  Chave Salva
-              </button>
-              <button 
-                onClick={() => setPixSelectionMode('NEW')}
-                className={`flex-1 py-2 text-xs rounded-lg border ${pixSelectionMode === 'NEW' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-600 text-slate-400'}`}
-              >
-                  Nova / Manual
-              </button>
-          </div>
-
-          {pixSelectionMode === 'SAVED' && (
-              <select
-                  value={selectedPixId}
-                  onChange={(e) => setSelectedPixId(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
-              >
-                  <option value="">Selecione uma chave...</option>
-                  {pixKeys.map(k => (
-                      <option key={k.id} value={k.id}>{k.name} - {k.bank} ({k.key})</option>
-                  ))}
-              </select>
-          )}
-
-          {pixSelectionMode === 'NEW' && (
-              <input 
-                  type="text"
-                  value={newPixString}
-                  onChange={(e) => setNewPixString(e.target.value)}
-                  placeholder="Digite a chave Pix (CPF, Email, etc)..."
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
-              />
-          )}
-      </div>
-  );
 
   return (
     <div className="space-y-6">
@@ -267,12 +321,87 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
         {filteredAccounts.map(account => (
           <div key={account.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm hover:border-indigo-500/30 transition-all group relative">
              <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                {onSave && (
+                {type !== 'DELETED' && onDelete && (
+                    <button 
+                        onClick={() => handleDeleteClick(account)} 
+                        className="p-1.5 bg-slate-800 text-slate-400 hover:text-red-400 rounded-lg border border-slate-700"
+                        title="Excluir Conta"
+                    >
+                        <Trash2 size={14} />
+                    </button>
+                )}
+                
+                {/* DELETED TAB ACTIONS */}
+                {type === 'DELETED' && (
+                    <>
+                        {onReactivate && (
+                            <button 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleReactivateClick(account);
+                                }}
+                                className="p-1.5 bg-slate-800 text-blue-500 hover:text-blue-400 rounded-lg border border-slate-700"
+                                title="Restaurar Conta"
+                            >
+                                <RotateCcw size={14} />
+                            </button>
+                        )}
+                        {onDelete && (
+                            <button 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDelete(account.id, ""); // Permanent delete trigger
+                                }} 
+                                className="p-1.5 bg-slate-800 text-red-500 hover:text-red-400 rounded-lg border border-slate-700"
+                                title="Excluir Permanentemente"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                    </>
+                )}
+
+                {onSave && type !== 'DELETED' && (
                    <button onClick={() => handleEdit(account)} className="p-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-lg border border-slate-700" title="Editar">
                      <Pencil size={14} />
                    </button>
                 )}
-                {onReplacement && account.status !== 'REPLACEMENT' && (
+                
+                {/* Actions for LIMITED tab */}
+                {type === 'LIMITED' && (
+                    <>
+                        {onWithdraw && (
+                            <button 
+                                onClick={() => handleWithdrawalClick(account)} 
+                                className="p-1.5 bg-slate-800 text-emerald-500 hover:text-emerald-400 rounded-lg border border-slate-700"
+                                title="Solicitar Saque"
+                            >
+                                <DollarSign size={14} />
+                            </button>
+                        )}
+                        {onReactivate && (
+                            <button 
+                                onClick={() => handleReactivateClick(account)} 
+                                className="p-1.5 bg-slate-800 text-blue-500 hover:text-blue-400 rounded-lg border border-slate-700"
+                                title="Reativar Conta (Mover para Ativas)"
+                            >
+                                <RotateCcw size={14} />
+                            </button>
+                        )}
+                    </>
+                )}
+                {/* Actions for REPLACEMENT tab */}
+                {type === 'REPLACEMENT' && onReactivate && (
+                    <button 
+                        onClick={() => handleReactivateClick(account)} 
+                        className="p-1.5 bg-slate-800 text-blue-500 hover:text-blue-400 rounded-lg border border-slate-700"
+                        title="Reativar Conta (Mover para Ativas)"
+                    >
+                        <RotateCcw size={14} />
+                    </button>
+                )}
+                
+                {onReplacement && account.status !== 'REPLACEMENT' && type !== 'DELETED' && (
                   <button 
                     onClick={() => handleReplacementClick(account)}
                     className="p-1.5 bg-slate-800 text-rose-500 hover:text-rose-400 rounded-lg border border-slate-700"
@@ -338,6 +467,13 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                  </div>
               )}
             </div>
+            
+            {/* Deleted Reason Display */}
+            {type === 'DELETED' && (
+                <div className="mt-3 bg-red-500/10 border border-red-500/20 rounded-lg p-2 text-xs text-red-300">
+                    <strong>Excluída:</strong> {account.deletionReason || 'Sem justificativa'}
+                </div>
+            )}
 
              {/* Card Preview */}
             {account.card && (
@@ -535,7 +671,12 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
               Deseja registrar automaticamente uma pendência de saque?
             </p>
             
-            <PixSelectionSection />
+            <PixSelectionSection 
+                mode={pixSelectionMode} setMode={setPixSelectionMode}
+                selectedId={selectedPixId} setSelectedId={setSelectedPixId}
+                newString={newPixString} setNewString={setNewPixString}
+                pixKeys={pixKeys}
+            />
 
             <div className="flex flex-col gap-3">
               <button
@@ -575,7 +716,12 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
               Deseja registrar automaticamente uma pendência de saque?
             </p>
 
-            <PixSelectionSection />
+            <PixSelectionSection 
+                mode={pixSelectionMode} setMode={setPixSelectionMode}
+                selectedId={selectedPixId} setSelectedId={setSelectedPixId}
+                newString={newPixString} setNewString={setNewPixString}
+                pixKeys={pixKeys}
+            />
 
             <div className="flex flex-col gap-3">
               <button
@@ -599,6 +745,87 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Withdrawal Confirmation Modal (From Limited Tab) */}
+      {selectedAccountForWithdrawal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div className="flex items-center gap-3 text-emerald-500 mb-4">
+              <DollarSign size={24} />
+              <h3 className="text-xl font-bold text-white">Solicitar Saque</h3>
+            </div>
+            
+            <p className="text-slate-300 mb-4">
+              Registrar pendência de saque para a conta limitada <strong>{selectedAccountForWithdrawal.name}</strong>?
+            </p>
+
+            <PixSelectionSection 
+                mode={pixSelectionMode} setMode={setPixSelectionMode}
+                selectedId={selectedPixId} setSelectedId={setSelectedPixId}
+                newString={newPixString} setNewString={setNewPixString}
+                pixKeys={pixKeys}
+            />
+
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={confirmWithdrawal}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition-colors"
+              >
+                Confirmar Solicitação
+              </button>
+              <button
+                onClick={resetModals}
+                className="w-full py-2 text-slate-500 hover:text-slate-400 text-sm"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Deletion Modal */}
+      {selectedAccountForDeletion && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+                <div className="flex items-center gap-3 text-red-500 mb-4">
+                    <Trash2 size={24} />
+                    <h3 className="text-xl font-bold text-white">Excluir Conta</h3>
+                </div>
+                
+                <p className="text-slate-300 mb-4">
+                    Tem certeza que deseja excluir a conta <strong>{selectedAccountForDeletion.name}</strong>? 
+                    Ela será movida para a aba de "Contas Excluídas".
+                </p>
+
+                <div className="mb-6">
+                    <label className="text-xs font-medium text-slate-400 mb-2 block">Justificativa (Opcional)</label>
+                    <textarea
+                        rows={3}
+                        value={deletionReason}
+                        onChange={(e) => setDeletionReason(e.target.value)}
+                        placeholder="Ex: Conta banida, duplicada..."
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:ring-2 focus:ring-red-500/50 outline-none resize-none"
+                    />
+                </div>
+
+                <div className="flex flex-col gap-3">
+                    <button
+                        onClick={confirmDeletion}
+                        className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition-colors"
+                    >
+                        Confirmar Exclusão
+                    </button>
+                    <button
+                        onClick={resetModals}
+                        className="w-full py-2 text-slate-500 hover:text-slate-400 text-sm"
+                    >
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+          </div>
       )}
     </div>
   );

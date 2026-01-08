@@ -41,7 +41,7 @@ export const NewRequestForm: React.FC<NewRequestFormProps> = ({ onSave, availabl
     }
   }, [success]);
 
-  // Auto-set house when account is selected
+  // Auto-set house when account is selected, but allow change
   useEffect(() => {
     if (selectedAccountId) {
         const acc = activeAccounts.find(a => a.id === selectedAccountId);
@@ -176,35 +176,21 @@ export const NewRequestForm: React.FC<NewRequestFormProps> = ({ onSave, availabl
               </select>
             </div>
 
-            {/* House Selection - Only manually selectable if type is CONTA_NOVA */}
-            {type === 'CONTA_NOVA' ? (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-400">Casa de Aposta</label>
-                  <select
-                    value={house}
-                    onChange={(e) => setHouse(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                  >
-                    {availableHouses.map((h) => (
-                      <option key={h} value={h}>
-                        {h}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-            ) : (
-                // For other types, house is derived from account (hidden or read-only display)
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-400">Casa de Aposta</label>
-                  <input 
-                     type="text" 
-                     value={house} 
-                     readOnly 
-                     className="w-full bg-slate-800/50 border border-slate-700 text-slate-400 rounded-xl px-4 py-3 cursor-not-allowed"
-                     placeholder="Selecione uma conta..."
-                  />
-                </div>
-            )}
+            {/* House Selection - Always enabled now */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-400">Casa de Aposta</label>
+              <select
+                value={house}
+                onChange={(e) => setHouse(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 text-white rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+              >
+                {availableHouses.map((h) => (
+                  <option key={h} value={h}>
+                    {h}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Conditional Fields */}
