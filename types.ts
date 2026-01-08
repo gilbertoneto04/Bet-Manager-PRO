@@ -18,15 +18,17 @@ export enum TaskStatus {
 
 export interface User {
   id: string;
-  name: string;
+  name: string; // Nome Completo
+  username: string; // Nome de Usuário (Login)
   email: string;
+  password?: string;
   role: 'ADMIN' | 'USER';
-  defaultPixKeyId?: string; // New field for default key preference
+  defaultPixKeyId?: string;
 }
 
 export interface PixKey {
   id: string;
-  name: string; // Nome do titular ou identificador
+  name: string;
   bank: string;
   keyType: 'CPF' | 'CNPJ' | 'EMAIL' | 'TELEFONE' | 'ALEATORIA';
   key: string;
@@ -39,7 +41,7 @@ export interface Task {
   accountName?: string;
   quantity?: number;
   description?: string;
-  pixKeyInfo?: string; // Information about where to send money
+  pixKeyInfo?: string;
   status: TaskStatus;
   deletionReason?: string;
   createdAt: string;
@@ -66,8 +68,8 @@ export interface Account {
   house: string;
   depositValue: number;
   status: 'ACTIVE' | 'LIMITED' | 'REPLACEMENT';
-  owner?: string; // New field
-  tags: string[]; // New field
+  owner?: string;
+  tags: string[];
   createdAt: string;
   taskIdSource?: string;
   packId?: string;
@@ -75,7 +77,7 @@ export interface Account {
 
 export interface LogEntry {
   id: string;
-  taskId?: string; // Made optional for system logs
+  taskId?: string;
   taskDescription: string;
   action: string;
   user: string;

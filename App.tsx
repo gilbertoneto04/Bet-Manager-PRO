@@ -108,8 +108,17 @@ const App: React.FC = () => {
   };
 
   const handleUpdateUser = (updatedUser: User) => {
+      // 1. Update session state
       setCurrentUser(updatedUser);
       localStorage.setItem('betManager_currentUser', JSON.stringify(updatedUser));
+
+      // 2. Update the "database" list of users so settings persist across sessions
+      const storedUsersStr = localStorage.getItem('betManager_users');
+      if (storedUsersStr) {
+          const users: User[] = JSON.parse(storedUsersStr);
+          const updatedUsers = users.map(u => u.id === updatedUser.id ? updatedUser : u);
+          localStorage.setItem('betManager_users', JSON.stringify(updatedUsers));
+      }
   };
 
   // --- Handlers ---
