@@ -21,6 +21,22 @@ interface TaskBoardProps {
   availableHouses: string[];
 }
 
+// Helper for House Colors
+const getHouseStyles = (houseName: string) => {
+    const normalized = houseName.toLowerCase().replace(/\s/g, '');
+    
+    if (normalized.includes('betano')) return 'bg-orange-600 text-white border-orange-500/50 shadow-orange-900/20';
+    if (normalized.includes('bet365')) return 'bg-emerald-700 text-white border-emerald-600/50 shadow-emerald-900/20';
+    if (normalized.includes('estrela')) return 'bg-yellow-400 text-blue-900 border-yellow-300/50 shadow-yellow-900/20 font-bold';
+    if (normalized.includes('kto')) return 'bg-red-600 text-white border-red-500/50 shadow-red-900/20';
+    if (normalized.includes('novibet')) return 'bg-cyan-900 text-white border-cyan-700/50 shadow-cyan-900/20';
+    if (normalized.includes('stake')) return 'bg-slate-700 text-white border-slate-600/50 shadow-slate-900/20';
+    if (normalized.includes('sporting')) return 'bg-blue-600 text-white border-blue-500/50 shadow-blue-900/20';
+    
+    // Default Style
+    return 'bg-slate-800 text-slate-300 border-slate-700 shadow-slate-900/20';
+};
+
 export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, currentUser, users, onUpdateStatus, onEditTask, onFinishNewAccountTask, onDeleteTask, onReorderTasks, availableTypes, logs, accounts, availableHouses }) => {
   // Default filter is 'UNFINISHED' (Não Finalizadas)
   const [filter, setFilter] = React.useState<'ALL' | 'UNFINISHED' | TaskStatus>('UNFINISHED');
@@ -601,7 +617,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
                 </div>
 
                 <div className="mb-4 pl-2">
-                  <h3 className="text-lg font-bold text-slate-100 mb-2">{getTypeLabel(task.type)}</h3>
+                  {/* House Badge and Task Title Row */}
+                  <div className="flex items-center gap-2 mb-2">
+                      <span className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide border font-bold shadow-sm ${getHouseStyles(task.house)}`}>
+                          {task.house}
+                      </span>
+                      <h3 className="text-lg font-bold text-slate-100">{getTypeLabel(task.type)}</h3>
+                  </div>
                   
                   <div className="flex flex-col gap-2">
                       {/* Account Name Highlight */}
@@ -615,10 +637,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
                       )}
 
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="px-2.5 py-1 rounded-md bg-gradient-to-r from-indigo-600 to-indigo-500 text-white border border-indigo-400/50 text-[11px] uppercase font-bold tracking-wider shadow-sm shadow-indigo-500/20">
-                            {task.house}
-                        </span>
-
                         {task.type === TaskType.CONTA_NOVA && (
                             <span className="text-xs text-indigo-400 font-medium bg-indigo-500/10 px-2 py-1 rounded border border-indigo-500/10">
                             {task.quantity} {task.quantity === 1 ? 'conta' : 'contas'}
