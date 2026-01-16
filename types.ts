@@ -84,6 +84,7 @@ export interface Account {
   updatedAt?: string;
   taskIdSource?: string;
   packId?: string;
+  phone?: string;
   card?: string; // Moved to end as requested
 }
 

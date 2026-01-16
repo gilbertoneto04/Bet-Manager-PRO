@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Account, Pack, PixKey, User, LogEntry, Task } from '../types';
-import { Ban, DollarSign, User as UserIcon, Mail, AlertTriangle, Search, Plus, Pencil, Save, X, CreditCard, RefreshCw, Package, Tag, Landmark, RotateCcw, Trash2, Info, Calendar, Key, AtSign, Copy, UserCheck } from 'lucide-react';
+import { Ban, DollarSign, User as UserIcon, Mail, AlertTriangle, Search, Plus, Pencil, Save, X, CreditCard, RefreshCw, Package, Tag, Landmark, RotateCcw, Trash2, Info, Calendar, Key, AtSign, Copy, UserCheck, Phone } from 'lucide-react';
 import { ACCOUNT_STATUS_LABELS } from '../constants';
 
 interface AccountListProps {
@@ -115,6 +115,22 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
     }
   }, [selectedAccountForLimit, selectedAccountForReplacement, selectedAccountForWithdrawal, currentUser]);
 
+  // Auto-select active Pack for New Accounts
+  useEffect(() => {
+    // Only run if creating a NEW account (no ID) and status is ACTIVE
+    if (editingAccount && !editingAccount.id && editingAccount.status === 'ACTIVE' && editingAccount.house) {
+        const activePacks = packs.filter(p => p.house === editingAccount.house && p.status === 'ACTIVE');
+        // Sort by creation? Assuming first is fine.
+        if (activePacks.length > 0) {
+            setUsePack(true);
+            setSelectedPackId(activePacks[0].id);
+        } else {
+            setUsePack(false);
+            setSelectedPackId('');
+        }
+    }
+  }, [editingAccount?.house, editingAccount?.id, editingAccount?.status, packs]);
+
   // Keyboard Shortcuts Listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -167,6 +183,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                               acc.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
                               (acc.username && acc.username.toLowerCase().includes(searchTerm.toLowerCase())) ||
                               (acc.owner && acc.owner.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                              (acc.phone && acc.phone.includes(searchTerm)) ||
                               (acc.tags && acc.tags.some(t => t.toLowerCase().includes(searchTerm.toLowerCase())));
         const matchesHouse = houseFilter === 'ALL' || acc.house === houseFilter;
         return matchesSearch && matchesHouse;
@@ -248,11 +265,13 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
   };
   
   const handleNew = () => {
+    const defaultHouse = availableHouses[0] || '';
     setEditingAccount({
       name: '',
       username: '',
       email: '',
-      house: availableHouses[0] || '',
+      phone: '',
+      house: defaultHouse,
       depositValue: 0,
       password: '',
       card: '',
@@ -260,10 +279,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       tags: [],
       owner: currentUser?.name || '' // Default owner is current user
     });
-    // Default: Reduce pack is true, unless admin chooses otherwise.
-    // If not admin, we force true basically.
-    setUsePack(true); 
-    setSelectedPackId('');
+    // Pack selection will be handled by useEffect
   };
 
   const handleAddTag = (e: React.KeyboardEvent) => {
@@ -570,8 +586,18 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                  <button onClick={(e) => handleCopy(e, account.email)} className="opacity-0 group-hover/field:opacity-100 text-slate-500 hover:text-white p-1"><Copy size={12} /></button>
               </div>
               
+              {account.phone && (
+                  <div className="col-span-2 flex items-center justify-between group/field mt-1">
+                     <div className="flex items-center gap-2 overflow-hidden">
+                        <Phone size={14} className="text-emerald-400 shrink-0" />
+                        <span className="truncate">{account.phone}</span>
+                     </div>
+                     <button onClick={(e) => handleCopy(e, account.phone!)} className="opacity-0 group-hover/field:opacity-100 text-slate-500 hover:text-white p-1"><Copy size={12} /></button>
+                  </div>
+              )}
+
               {account.username && (
-                 <div className="col-span-2 flex items-center justify-between group/field">
+                 <div className="col-span-2 flex items-center justify-between group/field mt-1">
                     <div className="flex items-center gap-2 overflow-hidden">
                         <UserIcon size={14} className="text-blue-400 shrink-0" />
                         <span className="truncate text-slate-300">{account.username}</span>
@@ -653,6 +679,15 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                                 <button onClick={() => navigator.clipboard.writeText(viewingAccount.email)} className="opacity-0 group-hover/item:opacity-100 text-slate-500 hover:text-white"><Copy size={12}/></button>
                             </div>
                         </div>
+                        {viewingAccount.phone && (
+                            <div className="flex justify-between items-center group/item">
+                                <span>Telefone:</span> 
+                                <div className="flex items-center gap-2">
+                                    <span className="text-white select-all">{viewingAccount.phone}</span>
+                                    <button onClick={() => navigator.clipboard.writeText(viewingAccount.phone!)} className="opacity-0 group-hover/item:opacity-100 text-slate-500 hover:text-white"><Copy size={12}/></button>
+                                </div>
+                            </div>
+                        )}
                         {viewingAccount.username && (
                             <div className="flex justify-between items-center group/item">
                                 <span>Usuário:</span> 
@@ -822,16 +857,32 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                     </div>
                 </div>
 
-                <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-400">Email de Acesso</label>
-                    <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={14} />
-                        <input 
-                        type="text"
-                        value={editingAccount.email}
-                        onChange={(e) => setEditingAccount({...editingAccount, email: e.target.value})}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500"
-                        />
+                {/* Email and Phone Side by Side */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-400">Email de Acesso</label>
+                        <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={14} />
+                            <input 
+                            type="text"
+                            value={editingAccount.email}
+                            onChange={(e) => setEditingAccount({...editingAccount, email: e.target.value})}
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-400">Telefone</label>
+                        <div className="relative">
+                            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400" size={14} />
+                            <input 
+                            type="text"
+                            value={editingAccount.phone || ''}
+                            onChange={(e) => setEditingAccount({...editingAccount, phone: e.target.value})}
+                            placeholder="(00) 00000-0000"
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
                     </div>
                 </div>
 
