@@ -693,7 +693,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
 
       {/* Account Details Modal */}
       {viewingAccount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl relative flex flex-col max-h-[90vh]">
              {/* Fixed Header */}
              <div className="p-6 pb-2 shrink-0 border-b border-slate-800/50">
@@ -768,9 +768,41 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
         </div>
       )}
 
+      {/* History Modal */}
+      {historyAccount && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl relative max-h-[80vh] flex flex-col">
+                <button onClick={() => setHistoryAccount(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X /></button>
+                <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                    <RotateCcw size={20} className="text-indigo-400" />
+                    Histórico da Conta: {historyAccount.name}
+                </h3>
+                
+                <div className="overflow-y-auto pr-2 flex-1 space-y-3">
+                    {getFilteredLogs(historyAccount.id, historyAccount.name).length > 0 ? (
+                        getFilteredLogs(historyAccount.id, historyAccount.name).map(log => (
+                            <div key={log.id} className="p-3 bg-slate-800/50 border border-slate-700 rounded-lg text-sm">
+                                <div className="flex justify-between items-start mb-1">
+                                    <span className="font-semibold text-slate-200">{log.action}</span>
+                                    <span className="text-xs text-slate-500">{new Date(log.timestamp).toLocaleString()}</span>
+                                </div>
+                                <p className="text-slate-400 text-xs mb-1">{log.taskDescription}</p>
+                                <div className="text-[10px] text-indigo-400 flex items-center gap-1">
+                                    <UserIcon size={10} /> {log.user}
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-center text-slate-500 py-10">Nenhum histórico encontrado para esta conta.</p>
+                    )}
+                </div>
+            </div>
+          </div>
+      )}
+
       {/* Edit/Create Modal */}
       {editingAccount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
              
              {/* Fixed Header */}
@@ -999,7 +1031,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
 
       {/* Limit Confirmation Modal */}
       {selectedAccountForLimit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
             <div className="flex items-center gap-3 text-amber-500 mb-4">
               <AlertTriangle size={24} />
@@ -1044,7 +1076,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
 
       {/* Replacement Confirmation Modal */}
       {selectedAccountForReplacement && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
             <div className="flex items-center gap-3 text-rose-500 mb-4">
               <RefreshCw size={24} />
@@ -1089,7 +1121,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       
       {/* Withdrawal Confirmation Modal (From Limited Tab) */}
       {selectedAccountForWithdrawal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
             <div className="flex items-center gap-3 text-emerald-500 mb-4">
               <DollarSign size={24} />
@@ -1127,7 +1159,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       
       {/* Deletion Modal */}
       {selectedAccountForDeletion && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
             <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
                 <div className="flex items-center gap-3 text-red-500 mb-4">
                     <Trash2 size={24} />

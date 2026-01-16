@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import firebase from "firebase/compat/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getAnalytics } from "firebase/analytics";
@@ -15,9 +15,10 @@ const firebaseConfig = {
 };
 
 // Inicializa o Firebase
-const app = initializeApp(firebaseConfig);
+const app = firebase.initializeApp(firebaseConfig);
 
 // Exporta os serviços que o App.tsx e outros componentes utilizam
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const analytics = getAnalytics(app);
+// Using 'as any' to ensure compatibility between compat app instance and modular SDK getters
+export const auth = getAuth(app as any);
+export const db = getFirestore(app as any);
+export const analytics = getAnalytics(app as any);

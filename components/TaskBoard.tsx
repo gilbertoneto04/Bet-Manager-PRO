@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Task, TaskStatus, TaskType, Pack, PixKey, User as UserType, LogEntry, Account } from '../types';
 import { StatusBadge } from './StatusBadge';
-import { CheckCircle2, Clock, PlayCircle, Plus, Layers, Trash2, AlertOctagon, Package, Landmark, Pencil, X, GripVertical, RotateCcw, User, Info, Save, Filter } from 'lucide-react';
+import { CheckCircle2, Clock, PlayCircle, Plus, Layers, Trash2, AlertOctagon, Package, Landmark, Pencil, X, GripVertical, RotateCcw, User, Info, Save, Filter, Copy, Phone, DollarSign, Key, CreditCard, Calendar } from 'lucide-react';
+import { ACCOUNT_STATUS_LABELS } from '../constants';
 
 interface TaskBoardProps {
   tasks: Task[];
@@ -61,6 +62,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
   // Modal State for History (Info Button)
   const [historyTask, setHistoryTask] = useState<Task | null>(null);
 
+  // Modal State for Account Details (Read Only)
+  const [viewingAccount, setViewingAccount] = useState<Account | null>(null);
+
   // DnD State
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
@@ -76,6 +80,25 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
       });
       return Array.from(owners).sort();
   }, [tasks]);
+
+  // Keyboard Shortcuts Listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        // Close any open modal
+        setFinishingTask(null);
+        setDeletingTask(null);
+        setEditingPixTask(null);
+        setTaskToEdit(null);
+        setHistoryTask(null);
+        setViewingAccount(null);
+        setKfbTaskToFinish(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Pack Selection & Owner Logic when finishing
   useEffect(() => {
@@ -135,12 +158,11 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
   const handleDragStart = (e: React.DragEvent, taskId: string) => {
     e.dataTransfer.setData('taskId', taskId);
     setDraggedTaskId(taskId);
-    // Needed for Firefox to allow drag
     e.dataTransfer.effectAllowed = 'move';
   };
 
   const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); // Necessary to allow dropping
+    e.preventDefault(); 
   };
 
   const handleDrop = (e: React.DragEvent, targetTaskId: string) => {
@@ -150,6 +172,18 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
         onReorderTasks(sourceTaskId, targetTaskId);
     }
     setDraggedTaskId(null);
+  };
+
+  const handleCardClick = (e: React.MouseEvent, task: Task) => {
+      // Find account logic
+      if (task.accountName) {
+          const acc = accounts.find(a => a.name === task.accountName && a.house === task.house);
+          if (acc) {
+              setViewingAccount(acc);
+          } else {
+              // Try finding by ID if accountName fails (optional backup logic, not strictly required if name is key)
+          }
+      }
   };
 
   const handleAction = (task: Task, action: 'SOLICITADA' | 'PENDENTE' | 'FINALIZADA') => {
@@ -201,7 +235,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
       setEditQuantity(task.quantity || 1);
       setEditPixInfo(task.pixKeyInfo || '');
       
-      // Try to find account ID by name & house
       if (task.accountName) {
           const acc = accounts.find(a => a.name === task.accountName && a.house === task.house);
           setEditAccountId(acc ? acc.id : '');
@@ -317,6 +350,12 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
   const getTypeLabel = (typeValue: string) => {
     const found = availableTypes.find(t => t.value === typeValue);
     return found ? found.label : typeValue;
+  };
+
+  const getFilteredLogs = (task: Task) => {
+      if (!logs) return [];
+      // Match by TaskID or if the description contains task type/house info
+      return logs.filter(l => l.taskId === task.id).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   };
 
   const renderTaskActions = (task: Task) => {
@@ -508,12 +547,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
               onDragStart={(e) => handleDragStart(e, task.id)}
               onDragOver={handleDragOver}
               onDrop={(e) => handleDrop(e, task.id)}
+              onClick={(e) => handleCardClick(e, task)}
               className={`group bg-slate-900 border rounded-xl p-5 shadow-sm transition-all flex flex-col justify-between relative cursor-grab active:cursor-grabbing ${
                   task.status === TaskStatus.EXCLUIDA ? 'border-red-900/30 opacity-70' : 'border-slate-800 hover:border-indigo-500/30 hover:shadow-lg hover:shadow-indigo-500/5'
               } ${draggedTaskId === task.id ? 'opacity-50 ring-2 ring-indigo-500' : ''}`}
             >
               {/* Top Right Action Buttons Group */}
-              <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-slate-900/80 backdrop-blur-sm rounded-lg p-1" onClick={(e) => e.stopPropagation()}>
                   {/* History Button */}
                   {logs && (
                     <button
@@ -566,7 +606,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
                   <div className="flex flex-col gap-2">
                       {/* Account Name Highlight */}
                       {task.type !== TaskType.CONTA_NOVA && (
-                        <div className="flex items-center gap-2 text-indigo-200 bg-indigo-900/20 px-3 py-2 rounded-lg border border-indigo-500/20 w-full">
+                        <div className="flex items-center gap-2 text-indigo-200 bg-indigo-900/20 px-3 py-2 rounded-lg border border-indigo-500/20 w-full group-hover:bg-indigo-900/30 transition-colors">
                             <User size={16} className="text-indigo-400 shrink-0" />
                             <span className="font-semibold text-sm truncate" title={task.accountName}>
                                 {task.accountName || 'Conta Desconhecida'}
@@ -575,7 +615,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
                       )}
 
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="px-2 py-1 rounded-md bg-slate-950 text-slate-400 border border-slate-800 text-[10px] uppercase font-bold tracking-wider">
+                        <span className="px-2.5 py-1 rounded-md bg-gradient-to-r from-indigo-600 to-indigo-500 text-white border border-indigo-400/50 text-[11px] uppercase font-bold tracking-wider shadow-sm shadow-indigo-500/20">
                             {task.house}
                         </span>
 
@@ -622,9 +662,294 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
         )}
       </div>
 
+      {/* Account Details Modal (Read Only) */}
+      {viewingAccount && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl relative flex flex-col max-h-[90vh]">
+             {/* Fixed Header */}
+             <div className="p-6 pb-2 shrink-0 border-b border-slate-800/50">
+                 <button onClick={() => setViewingAccount(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 bg-slate-800/50 rounded-full"><X size={20}/></button>
+                 <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2 pr-8">
+                    <User className="text-indigo-400" />
+                    <span className="truncate">{viewingAccount.name}</span>
+                 </h3>
+                 <p className="text-sm text-slate-400">{viewingAccount.house} • {ACCOUNT_STATUS_LABELS[viewingAccount.status] || viewingAccount.status}</p>
+             </div>
+
+             {/* Scrollable Content */}
+             <div className="p-6 pt-4 overflow-y-auto space-y-4">
+                <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-2">Credenciais</p>
+                    <div className="space-y-2 text-sm text-slate-300">
+                        <div className="flex justify-between items-center group/item">
+                            <span>Email:</span> 
+                            <div className="flex items-center gap-2">
+                                <span className="text-white select-all">{viewingAccount.email}</span>
+                                <button onClick={() => navigator.clipboard.writeText(viewingAccount.email)} className="opacity-0 group-hover/item:opacity-100 text-slate-500 hover:text-white"><Copy size={12}/></button>
+                            </div>
+                        </div>
+                        {viewingAccount.phone && (
+                            <div className="flex justify-between items-center group/item">
+                                <span>Telefone:</span> 
+                                <div className="flex items-center gap-2">
+                                    <span className="text-white select-all">{viewingAccount.phone}</span>
+                                    <button onClick={() => navigator.clipboard.writeText(viewingAccount.phone!)} className="opacity-0 group-hover/item:opacity-100 text-slate-500 hover:text-white"><Copy size={12}/></button>
+                                </div>
+                            </div>
+                        )}
+                        {viewingAccount.username && (
+                            <div className="flex justify-between items-center group/item">
+                                <span>Usuário:</span> 
+                                <div className="flex items-center gap-2">
+                                    <span className="text-white select-all">{viewingAccount.username}</span>
+                                    <button onClick={() => navigator.clipboard.writeText(viewingAccount.username!)} className="opacity-0 group-hover/item:opacity-100 text-slate-500 hover:text-white"><Copy size={12}/></button>
+                                </div>
+                            </div>
+                        )}
+                        <div className="flex justify-between items-center group/item">
+                            <span>Senha:</span> 
+                            <div className="flex items-center gap-2">
+                                <span className="text-white font-mono select-all">{viewingAccount.password || 'N/A'}</span>
+                                {viewingAccount.password && <button onClick={() => navigator.clipboard.writeText(viewingAccount.password!)} className="opacity-0 group-hover/item:opacity-100 text-slate-500 hover:text-white"><Copy size={12}/></button>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-2">Financeiro</p>
+                    <div className="space-y-2 text-sm text-slate-300">
+                        <div className="flex justify-between"><span>Depósito Inicial:</span> <span className="text-emerald-400 font-mono">R$ {viewingAccount.depositValue.toFixed(2)}</span></div>
+                    </div>
+                </div>
+
+                {viewingAccount.card && (
+                    <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                        <p className="text-xs text-slate-500 uppercase font-bold mb-2">Dados do Card</p>
+                        <p className="text-sm text-slate-300 font-mono whitespace-pre-wrap break-words">{viewingAccount.card}</p>
+                    </div>
+                )}
+                
+                <div className="text-xs text-slate-500 pt-2 border-t border-slate-800">
+                    ID: {viewingAccount.id} <br/>
+                    Criada em: {new Date(viewingAccount.createdAt).toLocaleString()}
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* History Modal */}
+      {historyTask && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl relative max-h-[80vh] flex flex-col">
+                <button onClick={() => setHistoryTask(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X /></button>
+                <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                    <RotateCcw size={20} className="text-indigo-400" />
+                    Histórico da Pendência
+                </h3>
+                
+                <div className="overflow-y-auto pr-2 flex-1 space-y-3">
+                    {getFilteredLogs(historyTask).length > 0 ? (
+                        getFilteredLogs(historyTask).map(log => (
+                            <div key={log.id} className="p-3 bg-slate-800/50 border border-slate-700 rounded-lg text-sm">
+                                <div className="flex justify-between items-start mb-1">
+                                    <span className="font-semibold text-slate-200">{log.action}</span>
+                                    <div className="flex items-center gap-1 text-xs text-slate-500">
+                                        <Calendar size={10} />
+                                        {new Date(log.timestamp).toLocaleString()}
+                                    </div>
+                                </div>
+                                <div className="text-[10px] text-indigo-400 flex items-center gap-1 mt-1">
+                                    <User size={10} /> {log.user}
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-center text-slate-500 py-10">Nenhum histórico encontrado para esta pendência.</p>
+                    )}
+                </div>
+            </div>
+          </div>
+      )}
+
+      {/* Edit Task Modal */}
+      {taskToEdit && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Pencil size={20} className="text-indigo-400" />
+                    Editar Pendência
+                </h3>
+                <button onClick={() => setTaskToEdit(null)} className="text-slate-400 hover:text-white"><X /></button>
+            </div>
+
+            <div className="space-y-4">
+                {/* Type & House */}
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="text-xs font-medium text-slate-400 mb-1 block">Tipo</label>
+                        <select 
+                            value={editType}
+                            onChange={(e) => setEditType(e.target.value)}
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm"
+                        >
+                            {availableTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="text-xs font-medium text-slate-400 mb-1 block">Casa</label>
+                        <select 
+                            value={editHouse}
+                            onChange={(e) => setEditHouse(e.target.value)}
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm"
+                        >
+                            {availableHouses.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                    </div>
+                </div>
+
+                {/* Account Selection (Optional) - Filtered by House */}
+                {editType !== TaskType.CONTA_NOVA && (
+                    <div>
+                        <label className="text-xs font-medium text-slate-400 mb-1 block">Conta Vinculada (Apenas {editHouse})</label>
+                        <select 
+                            value={editAccountId}
+                            onChange={(e) => setEditAccountId(e.target.value)}
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm"
+                        >
+                            <option value="">Sem conta vinculada / Desconhecida</option>
+                            {accounts.filter(acc => acc.house === editHouse).map(acc => (
+                                <option key={acc.id} value={acc.id}>{acc.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                {/* Quantity (Conta Nova only) */}
+                {editType === TaskType.CONTA_NOVA && (
+                    <div>
+                        <label className="text-xs font-medium text-slate-400 mb-1 block">Quantidade</label>
+                        <input 
+                            type="number"
+                            min="1"
+                            value={editQuantity}
+                            onChange={(e) => setEditQuantity(parseInt(e.target.value) || 1)}
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm"
+                        />
+                    </div>
+                )}
+
+                {/* Description */}
+                <div>
+                    <label className="text-xs font-medium text-slate-400 mb-1 block">Descrição</label>
+                    <textarea 
+                        rows={3}
+                        value={editDescription}
+                        onChange={(e) => setEditDescription(e.target.value)}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm resize-none"
+                    />
+                </div>
+
+                {/* Pix Info */}
+                <div>
+                    <label className="text-xs font-medium text-slate-400 mb-1 block">Informações do Pix (Opcional)</label>
+                    <textarea 
+                        rows={2}
+                        value={editPixInfo}
+                        onChange={(e) => setEditPixInfo(e.target.value)}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm resize-none"
+                    />
+                </div>
+
+                <button 
+                    onClick={handleSaveGeneralEdit}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 mt-2"
+                >
+                    <Save size={18} />
+                    Salvar Alterações
+                </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pix Edit Modal */}
+      {editingPixTask && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+               <Landmark size={20} className="text-purple-400" />
+               Editar Chave Pix
+            </h3>
+            
+            <div className="mb-4">
+                <p className="text-sm text-slate-400 mb-2">Selecione uma nova chave para esta pendência:</p>
+                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                    <div className="flex gap-2 mb-3">
+                        <button 
+                            type="button"
+                            onClick={() => setPixSelectionMode('SAVED')}
+                            className={`flex-1 py-2 text-xs rounded-lg border ${pixSelectionMode === 'SAVED' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-600 text-slate-400'}`}
+                        >
+                            Salva
+                        </button>
+                        <button 
+                            type="button"
+                            onClick={() => setPixSelectionMode('NEW')}
+                            className={`flex-1 py-2 text-xs rounded-lg border ${pixSelectionMode === 'NEW' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-600 text-slate-400'}`}
+                        >
+                            Manual
+                        </button>
+                    </div>
+
+                    {pixSelectionMode === 'SAVED' && (
+                        <select
+                            value={selectedPixId}
+                            onChange={(e) => setSelectedPixId(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+                        >
+                            <option value="">Selecione uma chave...</option>
+                            {pixKeys.map(k => (
+                                <option key={k.id} value={k.id}>{k.name} - {k.bank} ({k.key})</option>
+                            ))}
+                        </select>
+                    )}
+
+                    {pixSelectionMode === 'NEW' && (
+                        <input 
+                            type="text"
+                            value={newPixString}
+                            onChange={(e) => setNewPixString(e.target.value)}
+                            placeholder="Digite a chave Pix..."
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+                        />
+                    )}
+                </div>
+            </div>
+
+            <div className="flex gap-3">
+                <button 
+                    onClick={handleSavePixEdit}
+                    className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 rounded-xl transition-colors"
+                >
+                    Salvar
+                </button>
+                <button 
+                    onClick={() => setEditingPixTask(null)}
+                    className="px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 rounded-xl transition-colors"
+                >
+                    Cancelar
+                </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* New Account Completion Modal */}
       {finishingTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl p-6 shadow-2xl my-8">
              <div className="flex items-center justify-between mb-6">
                <h3 className="text-xl font-bold text-white">Finalizar Entrega de Contas</h3>
@@ -796,7 +1121,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
 
       {/* Deletion Confirmation Modal */}
       {deletingTask && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
             <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
                 <div className="flex items-center gap-3 text-red-500 mb-4">
                     <AlertOctagon size={24} />

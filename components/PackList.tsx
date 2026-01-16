@@ -28,6 +28,20 @@ export const PackList: React.FC<PackListProps> = ({ packs, accounts, availableHo
   const [quantity, setQuantity] = useState(10);
   const [price, setPrice] = useState(0);
 
+  // Keyboard Shortcuts Listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsCreating(false);
+        setEditingPack(null);
+        setViewingAccount(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   useEffect(() => {
     if (availableHouses.length > 0 && !house) {
         setHouse(availableHouses[0]);
