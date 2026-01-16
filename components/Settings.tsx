@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2, Plus, RotateCcw, Landmark, User, Shield, ShieldCheck, GripVertical } from 'lucide-react';
+import { Trash2, Plus, RotateCcw, Landmark, User, Shield, ShieldCheck, GripVertical, AlertTriangle, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PixKey, User as UserType } from '../types';
 import { db } from '../firebase';
 import { collection, addDoc, deleteDoc, doc, query, where, getDocs } from 'firebase/firestore';
@@ -16,9 +16,10 @@ interface SettingsProps {
   currentUser: UserType | null;
   users: UserType[]; 
   onUpdateUser: (user: UserType) => void;
-  onUpdateUserRole: (userId: string, newRole: 'ADMIN' | 'USER') => void;
+  onUpdateUserRole: (userId: string, newRole: 'ADMIN' | 'USER' | 'AGENCIA' | 'KFB') => void;
   onReset?: () => void;
   logAction: (description: string, action: string) => void;
+  onClearDatabase?: () => Promise<number>;
 }
 
 export const Settings: React.FC<SettingsProps> = ({ 
@@ -30,7 +31,8 @@ export const Settings: React.FC<SettingsProps> = ({
   pixKeys,
   currentUser, users, onUpdateUser, onUpdateUserRole,
   onReset,
-  logAction 
+  logAction,
+  onClearDatabase
 }) => {
   const [newHouse, setNewHouse] = useState('');
   const [newTypeLabel, setNewTypeLabel] = useState('');
@@ -45,11 +47,18 @@ export const Settings: React.FC<SettingsProps> = ({
   const [draggedHouseIndex, setDraggedHouseIndex] = useState<number | null>(null);
   const [draggedTypeIndex, setDraggedTypeIndex] = useState<number | null>(null);
 
+  // Danger Zone Modal State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteCode, setDeleteCode] = useState('');
+  const [userCodeInput, setUserCodeInput] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteStatus, setDeleteStatus] = useState<'IDLE' | 'SUCCESS' | 'ERROR'>('IDLE');
+  const [deleteMessage, setDeleteMessage] = useState('');
+
   // --- Houses ---
   const handleAddHouse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newHouse.trim()) {
-      // Use max order + 1
       await addDoc(collection(db, 'config_houses'), { name: newHouse.trim(), order: houses.length });
       logAction('Configuração: Casas', `Adicionou a casa: ${newHouse.trim()}`);
       setNewHouse('');
@@ -68,7 +77,6 @@ export const Settings: React.FC<SettingsProps> = ({
   const handleHouseDragStart = (e: React.DragEvent, index: number) => {
       setDraggedHouseIndex(index);
       e.dataTransfer.effectAllowed = "move";
-      // Hack to hide ghost image on some browsers or set custom
   };
 
   const handleHouseDragOver = (e: React.DragEvent) => {
@@ -167,6 +175,40 @@ export const Settings: React.FC<SettingsProps> = ({
       }
   };
 
+  // --- Danger Zone Logic ---
+  const openDeleteModal = () => {
+      const code = Math.floor(1000 + Math.random() * 9000).toString();
+      setDeleteCode(code);
+      setUserCodeInput('');
+      setDeleteStatus('IDLE');
+      setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+      if (userCodeInput !== deleteCode) {
+          setDeleteStatus('ERROR');
+          setDeleteMessage('Código incorreto.');
+          return;
+      }
+
+      if (onClearDatabase) {
+          setIsDeleting(true);
+          try {
+              const count = await onClearDatabase();
+              setDeleteStatus('SUCCESS');
+              setDeleteMessage(`Limpeza concluída! ${count} itens removidos.`);
+              setTimeout(() => {
+                  setIsDeleteModalOpen(false);
+                  setIsDeleting(false);
+              }, 2000);
+          } catch (e: any) {
+              setDeleteStatus('ERROR');
+              setDeleteMessage(`Erro: ${e.message}`);
+              setIsDeleting(false);
+          }
+      }
+  };
+
   return (
     <div className="space-y-8 max-w-5xl mx-auto pb-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -213,9 +255,11 @@ export const Settings: React.FC<SettingsProps> = ({
                                      {currentUser?.role === 'ADMIN' && currentUser.id !== u.id ? (
                                         <select 
                                             value={u.role}
-                                            onChange={(e) => onUpdateUserRole(u.id, e.target.value as 'ADMIN' | 'USER')}
+                                            onChange={(e) => onUpdateUserRole(u.id, e.target.value as any)}
                                             className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-white"
                                         >
+                                            <option value="AGENCIA">AGENCIA</option>
+                                            <option value="KFB">KFB</option>
                                             <option value="USER">USER</option>
                                             <option value="ADMIN">ADMIN</option>
                                         </select>
@@ -318,7 +362,7 @@ export const Settings: React.FC<SettingsProps> = ({
                    <GripVertical size={16} className="text-slate-600" />
                    <div>
                        <span className="text-slate-300 block">{type.label}</span>
-                       <span className="text-[10px] text-slate-600 font-mono">{type.value}</span>
+                       <span className="text-slate-600 text-[10px] font-mono">{type.value}</span>
                    </div>
                 </div>
                 <button 
@@ -440,6 +484,93 @@ export const Settings: React.FC<SettingsProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Danger Zone Trigger */}
+      {currentUser?.role === 'ADMIN' && onClearDatabase && (
+          <div className="mt-12 p-6 bg-red-500/5 border border-red-500/20 rounded-2xl animate-fadeIn">
+              <div className="flex items-start gap-4">
+                  <div className="p-3 bg-red-500/10 rounded-full text-red-500">
+                      <AlertTriangle size={24} />
+                  </div>
+                  <div className="flex-1">
+                      <h3 className="text-lg font-bold text-red-500 mb-1">Zona de Perigo</h3>
+                      <p className="text-sm text-red-400/80 mb-4">
+                          Ações nesta área são irreversíveis. Tenha certeza absoluta antes de prosseguir.
+                      </p>
+                      
+                      <div className="flex items-center gap-4 flex-wrap">
+                          <button 
+                              onClick={openDeleteModal}
+                              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg text-sm transition-colors shadow-lg shadow-red-500/10"
+                          >
+                              Limpar Todos os Dados Operacionais
+                          </button>
+                          <span className="text-xs text-slate-500">
+                              Apaga: Pendências, Contas, Packs e Histórico. Mantém: Usuários e Configurações (Casas/Tipos).
+                          </span>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* Danger Zone Modal */}
+      {isDeleteModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+              <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+                  <button onClick={() => setIsDeleteModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+                      <X size={20}/>
+                  </button>
+
+                  <div className="flex flex-col items-center text-center mb-6">
+                      <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 mb-4 animate-pulse">
+                          <AlertTriangle size={32} />
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-2">Confirmação de Segurança</h3>
+                      <p className="text-sm text-slate-400">
+                          Você está prestes a apagar <strong>TODOS</strong> os dados operacionais. Esta ação não pode ser desfeita.
+                      </p>
+                  </div>
+
+                  {deleteStatus === 'SUCCESS' ? (
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl flex items-center justify-center gap-2 mb-4">
+                          <CheckCircle2 size={20} />
+                          <span>{deleteMessage}</span>
+                      </div>
+                  ) : deleteStatus === 'ERROR' ? (
+                      <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-center justify-center gap-2 mb-4">
+                          <AlertCircle size={20} />
+                          <span>{deleteMessage}</span>
+                      </div>
+                  ) : (
+                      <>
+                          <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 mb-6">
+                              <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">Código de Confirmação</p>
+                              <div className="text-3xl font-mono font-bold text-white tracking-widest bg-slate-900 py-2 rounded-lg border border-slate-800 select-all">
+                                  {deleteCode}
+                              </div>
+                          </div>
+
+                          <input
+                              type="text"
+                              value={userCodeInput}
+                              onChange={(e) => setUserCodeInput(e.target.value)}
+                              placeholder="Digite o código acima"
+                              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white text-center font-mono focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none mb-4"
+                          />
+
+                          <button
+                              onClick={handleConfirmDelete}
+                              disabled={!userCodeInput || isDeleting}
+                              className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl transition-colors shadow-lg shadow-red-500/20"
+                          >
+                              {isDeleting ? 'Apagando dados...' : 'Confirmar Limpeza Total'}
+                          </button>
+                      </>
+                  )}
+              </div>
+          </div>
+      )}
     </div>
   );
 };

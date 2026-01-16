@@ -1,22 +1,24 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Task, TaskStatus, TaskType, Pack, PixKey, User as UserType } from '../types';
+import { Task, TaskStatus, TaskType, Pack, PixKey, User as UserType, LogEntry } from '../types';
 import { StatusBadge } from './StatusBadge';
-import { CheckCircle2, Clock, PlayCircle, Plus, LayoutList, Layers, Trash2, AlertOctagon, Package, Landmark, Pencil, X, GripVertical, RotateCcw, User } from 'lucide-react';
+import { CheckCircle2, Clock, PlayCircle, Plus, Layers, Trash2, AlertOctagon, Package, Landmark, Pencil, X, GripVertical, RotateCcw, User, Info } from 'lucide-react';
 
 interface TaskBoardProps {
   tasks: Task[];
   packs: Pack[];
   pixKeys: PixKey[];
   currentUser: UserType | null;
-  onUpdateStatus: (taskId: string, newStatus: TaskStatus) => void;
+  users?: UserType[]; 
+  onUpdateStatus: (taskId: string, newStatus: TaskStatus, agentId?: string) => void;
   onEditTask: (taskId: string, updates: Partial<Task>) => void;
   onFinishNewAccountTask: (taskId: string, accountsData: { name: string; email: string; depositValue: number }[], packId?: string) => void;
   onDeleteTask: (taskId: string, reason?: string) => void;
   onReorderTasks: (draggedId: string, targetId: string) => void;
   availableTypes: { label: string, value: string }[];
+  logs?: LogEntry[]; // Added for info button logic
 }
 
-export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, currentUser, onUpdateStatus, onEditTask, onFinishNewAccountTask, onDeleteTask, onReorderTasks, availableTypes }) => {
+export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, currentUser, users, onUpdateStatus, onEditTask, onFinishNewAccountTask, onDeleteTask, onReorderTasks, availableTypes, logs }) => {
   // Default filter is 'UNFINISHED' (Não Finalizadas)
   const [filter, setFilter] = React.useState<'ALL' | 'UNFINISHED' | TaskStatus>('UNFINISHED');
   
@@ -39,9 +41,16 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
   const [pixSelectionMode, setPixSelectionMode] = useState<'SAVED' | 'NEW'>('SAVED');
   const [selectedPixId, setSelectedPixId] = useState('');
   const [newPixString, setNewPixString] = useState('');
+  
+  // Modal State for History (Info Button)
+  const [historyTask, setHistoryTask] = useState<Task | null>(null);
 
   // DnD State
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+
+  // KFB Selection Logic
+  const [kfbTaskToFinish, setKfbTaskToFinish] = useState<Task | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
 
   // Reset pack selection when modal opens
   useEffect(() => {
@@ -106,7 +115,24 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
   };
 
   const handleAction = (task: Task, action: 'SOLICITADA' | 'PENDENTE' | 'FINALIZADA') => {
+    if (action === 'FINALIZADA' && currentUser?.role === 'KFB') {
+        setKfbTaskToFinish(task);
+        setSelectedAgentId('');
+        return;
+    }
     onUpdateStatus(task.id, action as TaskStatus);
+  };
+
+  const confirmKfbFinish = () => {
+      if (kfbTaskToFinish) {
+          if (!selectedAgentId) {
+              alert("Por favor, selecione qual Agência finalizou a tarefa.");
+              return;
+          }
+          onUpdateStatus(kfbTaskToFinish.id, TaskStatus.FINALIZADA, selectedAgentId);
+          setKfbTaskToFinish(null);
+          setSelectedAgentId('');
+      }
   };
 
   const handleSavePixEdit = () => {
@@ -186,6 +212,15 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
         setDeletionReason('');
     }
   };
+  
+  const getFilteredLogs = (task: Task) => {
+      if (!logs) return [];
+      const searchName = task.accountName || '';
+      return logs.filter(l => 
+          (l.taskId === task.id) || 
+          (searchName && l.taskDescription && l.taskDescription.includes(searchName))
+      ).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  };
 
   const FilterButton = ({ label, value, count }: { label: string, value: 'ALL' | 'UNFINISHED' | TaskStatus, count: number }) => (
     <button
@@ -228,13 +263,23 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
     }
 
     if (task.status === TaskStatus.FINALIZADA) {
+        // Find agent name if KFB/Admin wants to see it?
+        const finishedAgent = users?.find(u => u.id === task.finishedBy);
+        
         return (
-            <button
-                onClick={() => handleAction(task, 'SOLICITADA')}
-                className="col-span-2 flex items-center justify-center gap-2 w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg text-xs font-medium transition-colors"
-            >
-                Reabrir (Marcar Solicitada)
-            </button>
+            <div className="col-span-2">
+                {finishedAgent && (
+                    <div className="mb-2 text-center text-[10px] text-emerald-500/70">
+                        Finalizada por: {finishedAgent.name}
+                    </div>
+                )}
+                <button
+                    onClick={() => handleAction(task, 'SOLICITADA')}
+                    className="flex items-center justify-center gap-2 w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg text-xs font-medium transition-colors"
+                >
+                    Reabrir (Marcar Solicitada)
+                </button>
+            </div>
         );
     }
 
@@ -352,11 +397,22 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
               {task.status !== TaskStatus.EXCLUIDA && (
                   <button 
                     onClick={() => initDeletion(task)}
-                    className="absolute top-4 right-4 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                    className="absolute top-4 right-4 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1 z-10"
                     title="Excluir Solicitação"
                   >
                       <Trash2 size={16} />
                   </button>
+              )}
+              
+              {/* Info/History Button */}
+              {logs && (
+                 <button
+                    onClick={() => setHistoryTask(task)}
+                    className="absolute top-4 right-12 text-slate-600 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity p-1 z-10"
+                    title="Ver Histórico"
+                 >
+                    <Info size={16} />
+                 </button>
               )}
               
               <div className="absolute top-1/2 left-1 -translate-y-1/2 text-slate-700 opacity-0 group-hover:opacity-50">
@@ -427,6 +483,65 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
         )}
       </div>
 
+      {/* Agent Selection Modal (KFB Only) */}
+      {kfbTaskToFinish && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+                <h3 className="text-lg font-bold text-white mb-4">
+                    Quem finalizou esta pendência?
+                </h3>
+                <p className="text-slate-400 text-sm mb-4">
+                    Como KFB, você deve indicar qual Agência realizou a tarefa.
+                </p>
+                
+                <div className="space-y-2 mb-6 max-h-[300px] overflow-y-auto">
+                    {users?.filter(u => u.role === 'AGENCIA').map(user => (
+                        <label 
+                            key={user.id}
+                            className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                                selectedAgentId === user.id 
+                                ? 'bg-indigo-600 border-indigo-500' 
+                                : 'bg-slate-800 border-slate-700 hover:border-slate-600'
+                            }`}
+                        >
+                            <input 
+                                type="radio" 
+                                name="agent"
+                                value={user.id}
+                                checked={selectedAgentId === user.id}
+                                onChange={(e) => setSelectedAgentId(e.target.value)}
+                                className="hidden"
+                            />
+                            <div className="w-8 h-8 rounded-full bg-slate-900/50 flex items-center justify-center text-xs font-bold text-slate-300">
+                                {user.name.substring(0,2)}
+                            </div>
+                            <span className="text-sm font-medium text-white">{user.name}</span>
+                        </label>
+                    ))}
+                    {(!users || users.filter(u => u.role === 'AGENCIA').length === 0) && (
+                        <p className="text-sm text-red-400 text-center py-4">Nenhuma agência cadastrada.</p>
+                    )}
+                </div>
+
+                <div className="flex gap-3">
+                    <button
+                        onClick={confirmKfbFinish}
+                        disabled={!selectedAgentId}
+                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-colors"
+                    >
+                        Confirmar
+                    </button>
+                    <button
+                        onClick={() => { setKfbTaskToFinish(null); setSelectedAgentId(''); }}
+                        className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium transition-colors"
+                    >
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+          </div>
+      )}
+
       {/* Edit Pix Modal */}
       {editingPixTask && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
@@ -487,6 +602,38 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
                 </div>
             </div>
           </div>
+      )}
+
+      {/* History Modal */}
+      {historyTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl relative max-h-[80vh] flex flex-col">
+                <button onClick={() => setHistoryTask(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X /></button>
+                <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                    <RotateCcw size={20} className="text-indigo-400" />
+                    Histórico da Pendência
+                </h3>
+                
+                <div className="overflow-y-auto pr-2 flex-1 space-y-3">
+                    {getFilteredLogs(historyTask).length > 0 ? (
+                        getFilteredLogs(historyTask).map(log => (
+                            <div key={log.id} className="p-3 bg-slate-800/50 border border-slate-700 rounded-lg text-sm">
+                                <div className="flex justify-between items-start mb-1">
+                                    <span className="font-semibold text-slate-200">{log.action}</span>
+                                    <span className="text-xs text-slate-500">{new Date(log.timestamp).toLocaleString()}</span>
+                                </div>
+                                <p className="text-slate-400 text-xs mb-1">{log.taskDescription}</p>
+                                <div className="text-[10px] text-indigo-400 flex items-center gap-1">
+                                    <User size={10} /> {log.user}
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-center text-slate-500 py-10">Nenhum histórico encontrado para esta tarefa.</p>
+                    )}
+                </div>
+            </div>
+        </div>
       )}
 
       {/* New Account Completion Modal */}

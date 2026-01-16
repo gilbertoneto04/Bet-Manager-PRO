@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Pack, Account, User } from '../types';
-import { Package, Plus, ChevronDown, ChevronUp, CheckCircle2, DollarSign, RefreshCw, Pencil, X, Tag, CreditCard, Ban, Trash2 } from 'lucide-react';
+import { Pack, Account, User, LogEntry } from '../types';
+import { Package, Plus, ChevronDown, ChevronUp, CheckCircle2, DollarSign, RefreshCw, Pencil, X, Tag, CreditCard, Ban, Trash2, User as UserIcon } from 'lucide-react';
 
 interface PackListProps {
   packs: Pack[];
@@ -9,12 +9,15 @@ interface PackListProps {
   currentUser: User | null;
   onCreatePack: (packData: { house: string; quantity: number; price: number }) => void;
   onEditPack?: (packId: string, updates: Partial<Pack>) => void;
+  availableTypes?: any[];
+  logs?: LogEntry[];
 }
 
-export const PackList: React.FC<PackListProps> = ({ packs, accounts, availableHouses, currentUser, onCreatePack, onEditPack }) => {
+export const PackList: React.FC<PackListProps> = ({ packs, accounts, availableHouses, currentUser, onCreatePack, onEditPack, logs }) => {
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'COMPLETED'>('ACTIVE');
   const [isCreating, setIsCreating] = useState(false);
   const [expandedPack, setExpandedPack] = useState<string | null>(null);
+  const [viewingAccount, setViewingAccount] = useState<Account | null>(null);
   
   // Edit State
   const [editingPack, setEditingPack] = useState<Pack | null>(null);
@@ -196,7 +199,11 @@ export const PackList: React.FC<PackListProps> = ({ packs, accounts, availableHo
                      {packAccounts.length > 0 ? (
                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                           {packAccounts.map(acc => (
-                             <div key={acc.id} className="bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm hover:border-slate-700 transition-colors">
+                             <div 
+                                key={acc.id} 
+                                onClick={() => setViewingAccount(acc)}
+                                className="bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm hover:border-slate-700 transition-colors cursor-pointer"
+                            >
                                 <div className="flex justify-between items-start mb-2">
                                     <div className="font-bold text-white truncate max-w-[120px]">{acc.name}</div>
                                     <span className={`text-[10px] px-1.5 py-0.5 rounded border ${getStatusColor(acc.status)}`}>
@@ -256,6 +263,50 @@ export const PackList: React.FC<PackListProps> = ({ packs, accounts, availableHo
           })
         )}
       </div>
+      
+      {/* Account Details Modal (Reused) */}
+      {viewingAccount && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative">
+             <button onClick={() => setViewingAccount(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X /></button>
+             
+             <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+                <UserIcon className="text-indigo-400" />
+                {viewingAccount.name}
+             </h3>
+             <p className="text-sm text-slate-400 mb-6">{viewingAccount.house} • {viewingAccount.status}</p>
+
+             <div className="space-y-4">
+                <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-2">Credenciais</p>
+                    <div className="space-y-2 text-sm text-slate-300">
+                        <div className="flex justify-between"><span>Email:</span> <span className="text-white select-all">{viewingAccount.email}</span></div>
+                        <div className="flex justify-between"><span>Senha:</span> <span className="text-white font-mono select-all">{viewingAccount.password || 'N/A'}</span></div>
+                    </div>
+                </div>
+
+                <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-2">Financeiro</p>
+                    <div className="space-y-2 text-sm text-slate-300">
+                        <div className="flex justify-between"><span>Depósito Inicial:</span> <span className="text-emerald-400 font-mono">R$ {viewingAccount.depositValue.toFixed(2)}</span></div>
+                    </div>
+                </div>
+
+                {viewingAccount.card && (
+                    <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                        <p className="text-xs text-slate-500 uppercase font-bold mb-2">Dados do Card</p>
+                        <p className="text-sm text-slate-300 font-mono whitespace-pre-wrap">{viewingAccount.card}</p>
+                    </div>
+                )}
+                
+                <div className="text-xs text-slate-500 pt-2 border-t border-slate-800">
+                    ID: {viewingAccount.id} <br/>
+                    Criada em: {new Date(viewingAccount.createdAt).toLocaleString()}
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
 
       {/* Create / Edit Modal */}
       {(isCreating || editingPack) && (

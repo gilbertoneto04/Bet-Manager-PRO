@@ -22,7 +22,7 @@ export interface User {
   username: string; // Nome de Usuário (Login)
   email: string;
   password?: string;
-  role: 'ADMIN' | 'USER';
+  role: 'ADMIN' | 'USER' | 'AGENCIA' | 'KFB';
   defaultPixKeyId?: string;
 }
 
@@ -44,9 +44,11 @@ export interface Task {
   pixKeyInfo?: string;
   status: TaskStatus;
   deletionReason?: string;
-  orderIndex?: number; // Added for DnD
+  orderIndex?: number;
+  finishedBy?: string; // ID of the AGENCIA user who finished it
   createdAt: string;
   updatedAt: string;
+  resolvedAt?: string; // Date when status became FINALIZADA
 }
 
 export interface Pack {
@@ -69,11 +71,13 @@ export interface Account {
   house: string;
   depositValue: number;
   status: 'ACTIVE' | 'LIMITED' | 'REPLACEMENT' | 'DELETED';
-  limitedAt?: string; // Date when account became limited
+  limitedAt?: string;
+  replacementAt?: string; // Date when marked for replacement
   deletionReason?: string;
   owner?: string;
   tags: string[];
   createdAt: string;
+  updatedAt?: string;
   taskIdSource?: string;
   packId?: string;
 }

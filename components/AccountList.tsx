@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Account, Pack, PixKey, User } from '../types';
-import { Ban, DollarSign, User as UserIcon, Mail, AlertTriangle, Search, Plus, Pencil, Save, X, CreditCard, RefreshCw, Package, Tag, Landmark, RotateCcw, Trash2 } from 'lucide-react';
+import { Account, Pack, PixKey, User, LogEntry } from '../types';
+import { Ban, DollarSign, User as UserIcon, Mail, AlertTriangle, Search, Plus, Pencil, Save, X, CreditCard, RefreshCw, Package, Tag, Landmark, RotateCcw, Trash2, Info, Calendar } from 'lucide-react';
 
 interface AccountListProps {
   accounts: Account[];
@@ -15,6 +15,7 @@ interface AccountListProps {
   onDelete?: (accountId: string, reason: string) => void;
   onSave?: (account: Account, packIdToDeduct?: string) => void;
   availableHouses: string[];
+  logs?: LogEntry[]; // Passed for history Modal
 }
 
 // Extracted Component to prevent re-render focus loss
@@ -70,7 +71,7 @@ const PixSelectionSection: React.FC<{
 );
 
 
-export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs, pixKeys, currentUser, onLimit, onReplacement, onWithdraw, onReactivate, onDelete, onSave, availableHouses }) => {
+export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs, pixKeys, currentUser, onLimit, onReplacement, onWithdraw, onReactivate, onDelete, onSave, availableHouses, logs }) => {
   const [selectedAccountForLimit, setSelectedAccountForLimit] = useState<Account | null>(null);
   const [selectedAccountForReplacement, setSelectedAccountForReplacement] = useState<Account | null>(null);
   const [selectedAccountForWithdrawal, setSelectedAccountForWithdrawal] = useState<Account | null>(null);
@@ -78,6 +79,8 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
   const [deletionReason, setDeletionReason] = useState('');
   
   const [editingAccount, setEditingAccount] = useState<Partial<Account> | null>(null);
+  const [historyAccount, setHistoryAccount] = useState<Account | null>(null); // For history modal
+  const [viewingAccount, setViewingAccount] = useState<Account | null>(null); // For details modal
   
   // Withdrawal Logic (Pix Selection)
   const [pixSelectionMode, setPixSelectionMode] = useState<'SAVED' | 'NEW' | 'NONE'>('SAVED');
@@ -136,7 +139,10 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       .sort((a, b) => {
         if (sortBy === 'NAME') return a.name.localeCompare(b.name);
         if (sortBy === 'BALANCE') return b.depositValue - a.depositValue;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(); // Default DATE
+        // Prioritize updatedAt for sorting if available to show recently modified on top
+        const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : new Date(b.createdAt).getTime();
+        const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : new Date(a.createdAt).getTime();
+        return timeB - timeA;
       });
   }, [accounts, searchTerm, houseFilter, sortBy]);
 
@@ -161,52 +167,14 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       return undefined;
   };
 
-  const handleLimitClick = (account: Account) => {
-    setSelectedAccountForLimit(account);
-  };
-
-  const confirmLimit = (createWithdrawal: boolean) => {
-    if (selectedAccountForLimit && onLimit) {
-      onLimit(selectedAccountForLimit.id, createWithdrawal, createWithdrawal ? getPixInfoString() : undefined);
-      resetModals();
-    }
-  };
-
-  const handleReplacementClick = (account: Account) => {
-    setSelectedAccountForReplacement(account);
-  };
-
-  const confirmReplacement = (createWithdrawal: boolean) => {
-     if (selectedAccountForReplacement && onReplacement) {
-        onReplacement(selectedAccountForReplacement.id, createWithdrawal, createWithdrawal ? getPixInfoString() : undefined);
-        resetModals();
-     }
-  };
-  
-  const handleWithdrawalClick = (account: Account) => {
-      setSelectedAccountForWithdrawal(account);
-  };
-  
-  const confirmWithdrawal = () => {
-      if (selectedAccountForWithdrawal && onWithdraw) {
-          onWithdraw(selectedAccountForWithdrawal.id, getPixInfoString());
-          resetModals();
-      }
-  };
-
-  const handleDeleteClick = (account: Account) => {
-      setSelectedAccountForDeletion(account);
-      setDeletionReason('');
-  };
-
-  const confirmDeletion = () => {
-      if (selectedAccountForDeletion && onDelete) {
-          onDelete(selectedAccountForDeletion.id, deletionReason);
-          resetModals();
-      }
-  };
-  
-  const handleReactivateClick = (account: Account) => {
+  const handleLimitClick = (e: React.MouseEvent, account: Account) => { e.stopPropagation(); setSelectedAccountForLimit(account); };
+  const handleReplacementClick = (e: React.MouseEvent, account: Account) => { e.stopPropagation(); setSelectedAccountForReplacement(account); };
+  const handleWithdrawalClick = (e: React.MouseEvent, account: Account) => { e.stopPropagation(); setSelectedAccountForWithdrawal(account); };
+  const handleDeleteClick = (e: React.MouseEvent, account: Account) => { e.stopPropagation(); setSelectedAccountForDeletion(account); setDeletionReason(''); };
+  const handleEditClick = (e: React.MouseEvent, account: Account) => { e.stopPropagation(); setEditingAccount({ ...account, tags: account.tags || [] }); };
+  const handleHistoryClick = (e: React.MouseEvent, account: Account) => { e.stopPropagation(); setHistoryAccount(account); };
+  const handleReactivateClick = (e: React.MouseEvent, account: Account) => {
+      e.stopPropagation();
       const msg = type === 'DELETED' 
         ? `Deseja restaurar a conta ${account.name} (será movida para ATIVAS)?`
         : `Deseja mover a conta ${account.name} de volta para as ATIVAS?`;
@@ -216,10 +184,34 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       }
   };
 
-  const handleEdit = (account: Account) => {
-    setEditingAccount({ ...account, tags: account.tags || [] });
+  const confirmLimit = (createWithdrawal: boolean) => {
+    if (selectedAccountForLimit && onLimit) {
+      onLimit(selectedAccountForLimit.id, createWithdrawal, createWithdrawal ? getPixInfoString() : undefined);
+      resetModals();
+    }
   };
 
+  const confirmReplacement = (createWithdrawal: boolean) => {
+     if (selectedAccountForReplacement && onReplacement) {
+        onReplacement(selectedAccountForReplacement.id, createWithdrawal, createWithdrawal ? getPixInfoString() : undefined);
+        resetModals();
+     }
+  };
+  
+  const confirmWithdrawal = () => {
+      if (selectedAccountForWithdrawal && onWithdraw) {
+          onWithdraw(selectedAccountForWithdrawal.id, getPixInfoString());
+          resetModals();
+      }
+  };
+
+  const confirmDeletion = () => {
+      if (selectedAccountForDeletion && onDelete) {
+          onDelete(selectedAccountForDeletion.id, deletionReason);
+          resetModals();
+      }
+  };
+  
   const handleNew = () => {
     setEditingAccount({
       name: '',
@@ -265,6 +257,24 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       );
       setEditingAccount(null);
     }
+  };
+
+  // UPDATED: Show 'updatedAt' if available as the primary timestamp
+  const getDateLabel = (acc: Account) => {
+      if (acc.updatedAt) return `Atualizado: ${new Date(acc.updatedAt).toLocaleDateString()} ${new Date(acc.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+      if (type === 'ACTIVE') return `Registro: ${new Date(acc.createdAt).toLocaleDateString()}`;
+      if (type === 'LIMITED' && acc.limitedAt) return `Limitada: ${new Date(acc.limitedAt).toLocaleDateString()}`;
+      if (type === 'REPLACEMENT' && acc.replacementAt) return `Reposição: ${new Date(acc.replacementAt).toLocaleDateString()}`;
+      if (type === 'DELETED') return `Excluída: ${new Date(acc.createdAt).toLocaleDateString()}`;
+      return `Registro: ${new Date(acc.createdAt).toLocaleDateString()}`;
+  };
+
+  const getFilteredLogs = (accId: string, accName: string) => {
+      if (!logs) return [];
+      return logs.filter(l => 
+          (l.taskDescription && l.taskDescription.includes(accName)) || 
+          (l.taskId === accId) 
+      ).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   };
 
   return (
@@ -319,11 +329,23 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filteredAccounts.map(account => (
-          <div key={account.id} className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm hover:border-indigo-500/30 transition-all group relative">
+          <div 
+            key={account.id} 
+            onClick={() => setViewingAccount(account)}
+            className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm hover:border-indigo-500/30 transition-all group relative cursor-pointer"
+          >
              <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <button 
+                    onClick={(e) => handleHistoryClick(e, account)} 
+                    className="p-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-lg border border-slate-700"
+                    title="Ver Histórico"
+                >
+                    <Info size={14} />
+                </button>
+
                 {type !== 'DELETED' && onDelete && (
                     <button 
-                        onClick={() => handleDeleteClick(account)} 
+                        onClick={(e) => handleDeleteClick(e, account)} 
                         className="p-1.5 bg-slate-800 text-slate-400 hover:text-red-400 rounded-lg border border-slate-700"
                         title="Excluir Conta"
                     >
@@ -336,10 +358,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                     <>
                         {onReactivate && (
                             <button 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleReactivateClick(account);
-                                }}
+                                onClick={(e) => handleReactivateClick(e, account)}
                                 className="p-1.5 bg-slate-800 text-blue-500 hover:text-blue-400 rounded-lg border border-slate-700"
                                 title="Restaurar Conta"
                             >
@@ -362,7 +381,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                 )}
 
                 {onSave && type !== 'DELETED' && (
-                   <button onClick={() => handleEdit(account)} className="p-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-lg border border-slate-700" title="Editar">
+                   <button onClick={(e) => handleEditClick(e, account)} className="p-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-lg border border-slate-700" title="Editar">
                      <Pencil size={14} />
                    </button>
                 )}
@@ -372,7 +391,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                     <>
                         {onWithdraw && (
                             <button 
-                                onClick={() => handleWithdrawalClick(account)} 
+                                onClick={(e) => handleWithdrawalClick(e, account)} 
                                 className="p-1.5 bg-slate-800 text-emerald-500 hover:text-emerald-400 rounded-lg border border-slate-700"
                                 title="Solicitar Saque"
                             >
@@ -381,7 +400,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                         )}
                         {onReactivate && (
                             <button 
-                                onClick={() => handleReactivateClick(account)} 
+                                onClick={(e) => handleReactivateClick(e, account)} 
                                 className="p-1.5 bg-slate-800 text-blue-500 hover:text-blue-400 rounded-lg border border-slate-700"
                                 title="Reativar Conta (Mover para Ativas)"
                             >
@@ -393,7 +412,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                 {/* Actions for REPLACEMENT tab */}
                 {type === 'REPLACEMENT' && onReactivate && (
                     <button 
-                        onClick={() => handleReactivateClick(account)} 
+                        onClick={(e) => handleReactivateClick(e, account)} 
                         className="p-1.5 bg-slate-800 text-blue-500 hover:text-blue-400 rounded-lg border border-slate-700"
                         title="Reativar Conta (Mover para Ativas)"
                     >
@@ -403,7 +422,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                 
                 {onReplacement && account.status !== 'REPLACEMENT' && type !== 'DELETED' && (
                   <button 
-                    onClick={() => handleReplacementClick(account)}
+                    onClick={(e) => handleReplacementClick(e, account)}
                     className="p-1.5 bg-slate-800 text-rose-500 hover:text-rose-400 rounded-lg border border-slate-700"
                     title="Marcar para Reposição"
                   >
@@ -412,7 +431,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                 )}
                 {type === 'ACTIVE' && (
                   <button 
-                    onClick={() => handleLimitClick(account)}
+                    onClick={(e) => handleLimitClick(e, account)}
                     className="p-1.5 bg-slate-800 text-amber-500 hover:text-amber-400 rounded-lg border border-slate-700"
                     title="Marcar como Limitada"
                   >
@@ -488,8 +507,9 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
               </div>
             )}
             
-            <div className="mt-3 text-[10px] text-slate-600 text-right">
-               {new Date(account.createdAt).toLocaleDateString()}
+            <div className="mt-3 text-[10px] text-slate-600 text-right font-mono flex items-center justify-end gap-1">
+               <Calendar size={10} />
+               {getDateLabel(account)}
             </div>
           </div>
         ))}
@@ -500,6 +520,82 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
           </div>
         )}
       </div>
+
+      {/* Account Details Modal */}
+      {viewingAccount && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative">
+             <button onClick={() => setViewingAccount(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X /></button>
+             
+             <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+                <UserIcon className="text-indigo-400" />
+                {viewingAccount.name}
+             </h3>
+             <p className="text-sm text-slate-400 mb-6">{viewingAccount.house} • {viewingAccount.status}</p>
+
+             <div className="space-y-4">
+                <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-2">Credenciais</p>
+                    <div className="space-y-2 text-sm text-slate-300">
+                        <div className="flex justify-between"><span>Email:</span> <span className="text-white select-all">{viewingAccount.email}</span></div>
+                        <div className="flex justify-between"><span>Senha:</span> <span className="text-white font-mono select-all">{viewingAccount.password || 'N/A'}</span></div>
+                    </div>
+                </div>
+
+                <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-2">Financeiro</p>
+                    <div className="space-y-2 text-sm text-slate-300">
+                        <div className="flex justify-between"><span>Depósito Inicial:</span> <span className="text-emerald-400 font-mono">R$ {viewingAccount.depositValue.toFixed(2)}</span></div>
+                    </div>
+                </div>
+
+                {viewingAccount.card && (
+                    <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                        <p className="text-xs text-slate-500 uppercase font-bold mb-2">Dados do Card</p>
+                        <p className="text-sm text-slate-300 font-mono whitespace-pre-wrap">{viewingAccount.card}</p>
+                    </div>
+                )}
+                
+                <div className="text-xs text-slate-500 pt-2 border-t border-slate-800">
+                    ID: {viewingAccount.id} <br/>
+                    Criada em: {new Date(viewingAccount.createdAt).toLocaleString()}
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* History Modal */}
+      {historyAccount && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl relative max-h-[80vh] flex flex-col">
+                <button onClick={() => setHistoryAccount(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X /></button>
+                <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                    <RotateCcw size={20} className="text-indigo-400" />
+                    Histórico da Conta: {historyAccount.name}
+                </h3>
+                
+                <div className="overflow-y-auto pr-2 flex-1 space-y-3">
+                    {getFilteredLogs(historyAccount.id, historyAccount.name).length > 0 ? (
+                        getFilteredLogs(historyAccount.id, historyAccount.name).map(log => (
+                            <div key={log.id} className="p-3 bg-slate-800/50 border border-slate-700 rounded-lg text-sm">
+                                <div className="flex justify-between items-start mb-1">
+                                    <span className="font-semibold text-slate-200">{log.action}</span>
+                                    <span className="text-xs text-slate-500">{new Date(log.timestamp).toLocaleString()}</span>
+                                </div>
+                                <p className="text-slate-400 text-xs mb-1">{log.taskDescription}</p>
+                                <div className="text-[10px] text-indigo-400 flex items-center gap-1">
+                                    <UserIcon size={10} /> {log.user}
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-center text-slate-500 py-10">Nenhum histórico encontrado para esta conta.</p>
+                    )}
+                </div>
+            </div>
+          </div>
+      )}
 
       {/* Edit/Create Modal */}
       {editingAccount && (

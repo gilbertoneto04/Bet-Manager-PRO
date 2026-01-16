@@ -12,7 +12,7 @@ import { Task, LogEntry, TaskStatus, TabView, TaskType, Account, Pack, User, Pix
 import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, MOCK_HOUSES } from './constants';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, setDoc, getDoc, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, writeBatch, getDocs, query, limit, where } from 'firebase/firestore';
 
 // Helper to remove undefined values before sending to Firestore
 const sanitizePayload = (data: any) => {
@@ -63,7 +63,7 @@ const App: React.FC = () => {
                 name: firebaseUser.displayName || 'User', 
                 email: firebaseUser.email || '', 
                 username: firebaseUser.email?.split('@')[0] || 'user', 
-                role: 'USER' 
+                role: 'AGENCIA' 
               };
               setCurrentUser(u);
             }
@@ -74,7 +74,7 @@ const App: React.FC = () => {
                 name: firebaseUser.displayName || 'User', 
                 email: firebaseUser.email || '', 
                 username: firebaseUser.email?.split('@')[0] || 'user', 
-                role: 'USER' 
+                role: 'AGENCIA' 
               };
               setCurrentUser(u);
         }
@@ -186,11 +186,14 @@ const App: React.FC = () => {
     if (!pack) return;
     
     const newDelivered = pack.delivered + quantityToAdd;
+    // Auto-complete if full
+    const isComplete = newDelivered >= pack.quantity;
+
     const packRef = doc(db, 'packs', packId);
     
     await updateDoc(packRef, sanitizePayload({
         delivered: newDelivered,
-        status: newDelivered >= pack.quantity ? 'COMPLETED' : 'ACTIVE',
+        status: isComplete ? 'COMPLETED' : 'ACTIVE',
         updatedAt: new Date().toISOString()
     }));
   };
@@ -201,7 +204,7 @@ const App: React.FC = () => {
       await updateDoc(userRef, sanitizePayload(updatedUser));
   };
   
-  const handleUpdateUserRole = async (userId: string, newRole: 'ADMIN' | 'USER') => {
+  const handleUpdateUserRole = async (userId: string, newRole: 'ADMIN' | 'USER' | 'AGENCIA' | 'KFB') => {
       if (currentUser?.role !== 'ADMIN') return;
       const userRef = doc(db, 'users', userId);
       await updateDoc(userRef, { role: newRole });
@@ -246,9 +249,21 @@ const App: React.FC = () => {
 
   const handleEditPack = async (packId: string, updates: Partial<Pack>) => {
     try {
+        const pack = packs.find(p => p.id === packId);
+        if (!pack) return;
+
+        // Force logic: if delivered >= quantity, ensure it is COMPLETED
+        const finalQty = updates.quantity !== undefined ? updates.quantity : pack.quantity;
+        const finalDelivered = updates.delivered !== undefined ? updates.delivered : pack.delivered;
+        const computedStatus = finalDelivered >= finalQty ? 'COMPLETED' : 'ACTIVE';
+
+        // Override status if logic dictates completion, otherwise use provided or existing status
+        const finalStatus = finalDelivered >= finalQty ? 'COMPLETED' : (updates.status || pack.status);
+
         const packRef = doc(db, 'packs', packId);
         await updateDoc(packRef, sanitizePayload({
             ...updates,
+            status: finalStatus,
             updatedAt: new Date().toISOString()
         }));
         addLog(packId, 'Gestão de Packs', 'Pack atualizado por admin');
@@ -257,23 +272,53 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUpdateStatus = useCallback(async (taskId: string, newStatus: TaskStatus) => {
+  // Updated to support Agent Assignment by KFB and Update Account Timestamp
+  const handleUpdateStatus = useCallback(async (taskId: string, newStatus: TaskStatus, agentId?: string) => {
     try {
         const task = tasks.find(t => t.id === taskId);
         if (!task) return;
 
-        const taskRef = doc(db, 'tasks', taskId);
-        await updateDoc(taskRef, sanitizePayload({
+        const timestamp = new Date().toISOString();
+        const payload: any = {
             status: newStatus,
-            updatedAt: new Date().toISOString()
-        }));
+            updatedAt: timestamp
+        };
+
+        if (newStatus === TaskStatus.FINALIZADA) {
+            payload.resolvedAt = timestamp;
+            if (agentId) {
+                payload.finishedBy = agentId;
+            } else if (currentUser) {
+                payload.finishedBy = currentUser.id;
+            }
+        }
+
+        const taskRef = doc(db, 'tasks', taskId);
+        await updateDoc(taskRef, sanitizePayload(payload));
+
+        // --- UPDATE ACCOUNT TIMESTAMP IF LINKED ---
+        if (task.accountName) {
+            const linkedAccount = accounts.find(a => a.name === task.accountName && a.house === task.house);
+            if (linkedAccount) {
+                 const accRef = doc(db, 'accounts', linkedAccount.id);
+                 await updateDoc(accRef, { updatedAt: timestamp });
+            }
+        }
+        // ------------------------------------------
 
         const typeLabel = taskTypes.find(t => t.value === task.type)?.label || task.type;
-        addLog(taskId, `${typeLabel} - ${task.house}`, `Status alterado: ${TASK_STATUS_LABELS[task.status]} → ${TASK_STATUS_LABELS[newStatus]}`);
+        
+        let actionMsg = `Status alterado: ${TASK_STATUS_LABELS[task.status]} → ${TASK_STATUS_LABELS[newStatus]}`;
+        if (agentId) {
+            const agent = users.find(u => u.id === agentId);
+            actionMsg += ` (Realizado por: ${agent?.name || 'Desconhecido'})`;
+        }
+        
+        addLog(taskId, `${typeLabel} - ${task.house}`, actionMsg);
     } catch (e: any) {
         alert(`Erro ao atualizar status: ${e.message}`);
     }
-  }, [tasks, taskTypes]);
+  }, [tasks, taskTypes, currentUser, users, accounts]);
 
   const handleEditTask = useCallback(async (taskId: string, updates: Partial<Task>) => {
     try {
@@ -355,6 +400,7 @@ const App: React.FC = () => {
                 status: 'ACTIVE',
                 tags: [],
                 createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
                 taskIdSource: taskId,
                 packId: packIdToDeduct
             }));
@@ -374,9 +420,12 @@ const App: React.FC = () => {
             }));
             addLog(taskId, `Entrega Parcial - ${task.house}`, `Entregues: ${deliveredCount}. Restantes: ${newQuantity}.`);
         } else {
+            // Conta nova finalization usually doesn't need "Agent Selection" as it's an automated flow, but we can set current user
             await updateDoc(taskRef, sanitizePayload({
                 status: TaskStatus.FINALIZADA,
-                updatedAt: new Date().toISOString()
+                updatedAt: new Date().toISOString(),
+                resolvedAt: new Date().toISOString(),
+                finishedBy: currentUser?.id
             }));
             addLog(taskId, `Entrega Finalizada - ${task.house}`, `Tarefa concluída. ${deliveredCount} contas entregues.`);
         }
@@ -391,10 +440,11 @@ const App: React.FC = () => {
           if(!acc) return;
 
           const accRef = doc(db, 'accounts', accountId);
-          // Atualiza status e data de limitação
+          // Atualiza status e data de limitação e updatedAt
           await updateDoc(accRef, { 
               status: 'LIMITED',
-              limitedAt: new Date().toISOString() 
+              limitedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
           });
 
           if (createWithdrawal) {
@@ -413,7 +463,6 @@ const App: React.FC = () => {
       }
   };
   
-  // New handler for manual withdrawal from Limited accounts
   const handleCreateWithdrawalForAccount = async (accountId: string, pixInfo?: string) => {
       try {
           const acc = accounts.find(a => a.id === accountId);
@@ -427,13 +476,15 @@ const App: React.FC = () => {
                pixKeyInfo: pixInfo,
                status: TaskStatus.PENDENTE 
           });
+          // Update timestamp on account to reflect activity
+          await updateDoc(doc(db, 'accounts', accountId), { updatedAt: new Date().toISOString() });
+          
           addLog(accountId, `Conta ${acc.name}`, `Solicitou saque em conta limitada.`);
       } catch (e: any) {
           alert(`Erro ao criar saque: ${e.message}`);
       }
   };
   
-  // New handler to reactivate/restore account from Limited/Replacement/Deleted
   const handleReactivateAccount = async (accountId: string) => {
       try {
           const acc = accounts.find(a => a.id === accountId);
@@ -443,7 +494,11 @@ const App: React.FC = () => {
           }
           
           const accRef = doc(db, 'accounts', accountId);
-          await updateDoc(accRef, { status: 'ACTIVE', deletionReason: '' });
+          await updateDoc(accRef, { 
+              status: 'ACTIVE', 
+              deletionReason: '', 
+              updatedAt: new Date().toISOString() 
+          });
           addLog(accountId, `Conta ${acc.name}`, `Conta restaurada/reativada (Movida para Ativas).`);
       } catch (e: any) {
           console.error(e);
@@ -457,7 +512,7 @@ const App: React.FC = () => {
           if(!acc) return;
           
           const accRef = doc(db, 'accounts', accountId);
-          await updateDoc(accRef, { status: 'DELETED', deletionReason: reason });
+          await updateDoc(accRef, { status: 'DELETED', deletionReason: reason, updatedAt: new Date().toISOString() });
           addLog(accountId, `Conta ${acc.name}`, `Conta excluída. Motivo: ${reason || 'Não informado'}`);
       } catch (e: any) {
           alert(`Erro ao excluir conta: ${e.message}`);
@@ -480,11 +535,13 @@ const App: React.FC = () => {
         const accountToUpdate = accounts.find(a => a.id === accountId);
         if (!accountToUpdate) return;
         
+        // --- PACK DEDUCTION LOGIC VERIFICATION ---
         if (accountToUpdate.packId) {
             const pack = packs.find(p => p.id === accountToUpdate.packId);
             if (pack) {
                 const packRef = doc(db, 'packs', pack.id);
                 const newDelivered = Math.max(0, pack.delivered - 1);
+                // Status should revert to ACTIVE if it was COMPLETED
                 await updateDoc(packRef, sanitizePayload({
                     delivered: newDelivered,
                     status: 'ACTIVE', 
@@ -492,9 +549,14 @@ const App: React.FC = () => {
                 }));
             }
         }
+        // -----------------------------------------
 
          const accRef = doc(db, 'accounts', accountId);
-         await updateDoc(accRef, { status: 'REPLACEMENT' });
+         await updateDoc(accRef, { 
+             status: 'REPLACEMENT',
+             replacementAt: new Date().toISOString(),
+             updatedAt: new Date().toISOString()
+         });
             
          if (createWithdrawal) {
             await handleCreateTask({
@@ -525,6 +587,7 @@ const App: React.FC = () => {
           const newAccount = {
             ...accountData,
             createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
             packId: packIdToDeduct
           };
           delete (newAccount as any).id;
@@ -541,6 +604,36 @@ const App: React.FC = () => {
         alert(`Erro ao salvar conta: ${e.message}`);
     }
   };
+  
+  // --- Danger Zone / Database Clearing (CHUNKED DELETE) ---
+  const handleClearOperationalData = async (): Promise<number> => {
+     // Function to delete entire collections in batches of 100
+     const deleteCollection = async (collectionName: string) => {
+        const q = query(collection(db, collectionName), limit(100));
+        const snapshot = await getDocs(q);
+        
+        if (snapshot.size === 0) return 0;
+        
+        const batch = writeBatch(db);
+        snapshot.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+        });
+        
+        await batch.commit();
+        
+        // Recursively call to delete remaining docs
+        return snapshot.size + await deleteCollection(collectionName);
+     };
+
+     let totalDeleted = 0;
+     totalDeleted += await deleteCollection('tasks');
+     totalDeleted += await deleteCollection('accounts');
+     totalDeleted += await deleteCollection('packs');
+     totalDeleted += await deleteCollection('logs');
+     totalDeleted += await deleteCollection('pixKeys');
+     
+     return totalDeleted;
+  };
 
   // --- Settings Handlers ---
   
@@ -553,25 +646,21 @@ const App: React.FC = () => {
           try {
               const batch = writeBatch(db);
               
-              // 1. Delete existing houses
               const existingHouses = await getDocs(collection(db, 'config_houses'));
               existingHouses.forEach(doc => {
                   batch.delete(doc.ref);
               });
               
-              // 2. Delete existing types
               const existingTypes = await getDocs(collection(db, 'config_types'));
               existingTypes.forEach(doc => {
                   batch.delete(doc.ref);
               });
               
-              // 3. Add Default Houses
               MOCK_HOUSES.forEach((h, idx) => {
                  const docRef = doc(collection(db, 'config_houses'));
                  batch.set(docRef, { name: h, order: idx });
               });
 
-              // 4. Add Default Types
               Object.entries(TASK_TYPE_LABELS).forEach(([key, value], idx) => {
                   const docRef = doc(collection(db, 'config_types'));
                   batch.set(docRef, { label: value, value: key, order: idx });
@@ -606,8 +695,6 @@ const App: React.FC = () => {
       try {
           const batch = writeBatch(db);
           newOrder.forEach((typeObj, index) => {
-              // We need the ID to update Firestore. 
-              // If typeObj comes from the drag handler, it should have the ID if we passed the full object.
               if (typeObj.id) {
                   const ref = doc(db, 'config_types', typeObj.id);
                   batch.update(ref, { order: index });
@@ -641,12 +728,14 @@ const App: React.FC = () => {
             packs={packs}
             pixKeys={pixKeys}
             currentUser={currentUser}
+            users={users} 
             onUpdateStatus={handleUpdateStatus} 
             onEditTask={handleEditTask}
             onDeleteTask={handleDeleteTask}
             onFinishNewAccountTask={handleFinishNewAccountTask} 
             onReorderTasks={handleReorderTasks}
             availableTypes={taskTypes}
+            logs={logs} 
           />
       )}
       {activeTab === 'NEW_REQUEST' && (
@@ -667,6 +756,8 @@ const App: React.FC = () => {
              onCreatePack={handleCreatePack}
              onEditPack={handleEditPack}
              currentUser={currentUser}
+             availableTypes={taskTypes} 
+             logs={logs} 
           />
       )}
       {activeTab === 'HISTORY' && <HistoryLog logs={logs} />}
@@ -682,6 +773,7 @@ const App: React.FC = () => {
             onDelete={handleDeleteAccount}
             onSave={handleSaveAccount} 
             availableHouses={houses}
+            logs={logs}
           />
       )}
       {activeTab === 'ACCOUNTS_LIMITED' && (
@@ -697,6 +789,7 @@ const App: React.FC = () => {
             onReactivate={handleReactivateAccount}
             onDelete={handleDeleteAccount}
             availableHouses={houses}
+            logs={logs}
           />
       )}
       {activeTab === 'ACCOUNTS_REPLACEMENT' && (
@@ -710,6 +803,7 @@ const App: React.FC = () => {
             onReactivate={handleReactivateAccount}
             onDelete={handleDeleteAccount}
             availableHouses={houses}
+            logs={logs}
           />
       )}
       {activeTab === 'ACCOUNTS_DELETED' && (
@@ -722,6 +816,7 @@ const App: React.FC = () => {
             onReactivate={handleReactivateAccount}
             onDelete={handlePermanentDeleteAccount}
             availableHouses={houses}
+            logs={logs}
           />
       )}
       {activeTab === 'SETTINGS' && (
@@ -740,6 +835,7 @@ const App: React.FC = () => {
             onUpdateUserRole={handleUpdateUserRole}
             logAction={handleSettingsLog}
             onReset={handleRestoreDefaults}
+            onClearDatabase={handleClearOperationalData}
           />
       )}
       {activeTab === 'INSIGHTS' && (
@@ -748,6 +844,8 @@ const App: React.FC = () => {
             accounts={accounts} 
             availableHouses={houses}
             packs={packs}
+            users={users}
+            taskTypes={taskTypes}
           />
       )}
     </Layout>
