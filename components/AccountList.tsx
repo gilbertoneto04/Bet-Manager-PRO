@@ -337,7 +337,11 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       }
 
       onSave(
-          editingAccount as Account, 
+          {
+            ...editingAccount,
+            // Ensure we save 0 if the field is empty (undefined)
+            depositValue: editingAccount.depositValue ?? 0
+          } as Account, 
           (!editingAccount.id && usePack && selectedPackId) ? selectedPackId : undefined
       );
       setEditingAccount(null);
@@ -873,8 +877,16 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                             <input 
                                 type="number"
                                 step="0.01"
-                                value={editingAccount.depositValue}
-                                onChange={(e) => setEditingAccount({...editingAccount, depositValue: parseFloat(e.target.value) || 0})}
+                                // Use '' if undefined so the field can be empty for user convenience
+                                value={editingAccount.depositValue === undefined ? '' : editingAccount.depositValue}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setEditingAccount({
+                                        ...editingAccount, 
+                                        // If empty string, set to undefined. Otherwise parse.
+                                        depositValue: val === '' ? undefined : parseFloat(val)
+                                    });
+                                }}
                                 className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-8 pr-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500"
                             />
                         </div>

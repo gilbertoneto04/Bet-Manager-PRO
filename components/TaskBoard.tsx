@@ -51,7 +51,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
   const [finishingTask, setFinishingTask] = useState<Task | null>(null);
   const [deliveryMode, setDeliveryMode] = useState<'SELECT' | 'FULL' | 'PARTIAL'>('SELECT');
   const [deliveredQuantity, setDeliveredQuantity] = useState<number>(0);
-  const [accountDetails, setAccountDetails] = useState<{ name: string; email: string; depositValue: number, username: string, password?: string, card?: string, owner: string }[]>([]);
+  const [accountDetails, setAccountDetails] = useState<{ name: string; email: string; depositValue: number | undefined, username: string, password?: string, card?: string, owner: string }[]>([]);
   
   // Pack Selection Logic
   const [usePack, setUsePack] = useState(true);
@@ -300,7 +300,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
     setAccountDetails(Array(qty).fill({ name: '', email: '', depositValue: 0, username: '', password: '', card: '', owner: defaultOwner }));
   };
 
-  const handleAccountDetailChange = (index: number, field: string, value: string | number) => {
+  const handleAccountDetailChange = (index: number, field: string, value: string | number | undefined) => {
     const newDetails = [...accountDetails];
     newDetails[index] = { ...newDetails[index], [field]: value };
     setAccountDetails(newDetails);
@@ -335,9 +335,16 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
         alert("Por favor, preencha todos os campos obrigatórios (Nome e Email).");
         return;
       }
+      
+      // Sanitize depositValue to ensure it is a number when saving
+      const sanitizedDetails = accountDetails.map(d => ({
+          ...d,
+          depositValue: d.depositValue ?? 0
+      }));
+
       onFinishNewAccountTask(
           finishingTask.id, 
-          accountDetails, 
+          sanitizedDetails, 
           usePack && selectedPackId ? selectedPackId : undefined
       );
       setFinishingTask(null);
@@ -1130,8 +1137,11 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
                         <input 
                             type="number" 
                             step="0.01"
-                            value={acc.depositValue}
-                            onChange={(e) => handleAccountDetailChange(idx, 'depositValue', parseFloat(e.target.value) || 0)}
+                            value={acc.depositValue === undefined ? '' : acc.depositValue}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                handleAccountDetailChange(idx, 'depositValue', val === '' ? undefined : parseFloat(val));
+                            }}
                             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
                         />
                     </div>
