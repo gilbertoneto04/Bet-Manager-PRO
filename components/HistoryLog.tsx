@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { LogEntry } from '../types';
-import { ScrollText, User, Calendar, ChevronLeft, ChevronRight, Filter, Search, X } from 'lucide-react';
+import { User, Calendar, ChevronLeft, ChevronRight, Filter, Search, X } from 'lucide-react';
 
 export const HistoryLog: React.FC<{ logs: LogEntry[] }> = ({ logs }) => {
   // Pagination State

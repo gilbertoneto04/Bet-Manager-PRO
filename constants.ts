@@ -25,6 +25,15 @@ export const ACCOUNT_STATUS_LABELS: Record<string, string> = {
   'DELETED': 'Excluída'
 };
 
+export const TRANSACTION_TYPE_LABELS: Record<string, string> = {
+  'DEPOSITO': 'Depósito',
+  'SAQUE': 'Saque',
+  'PIX_RECEBIDO': 'Pix Recebido',
+  'PIX_ENVIADO': 'Pix Enviado',
+  'AJUSTE': 'Ajuste',
+  'OUTRO': 'Outro'
+};
+
 export const STATUS_COLORS: Record<TaskStatus, string> = {
   [TaskStatus.PENDENTE]: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
   [TaskStatus.SOLICITADA]: 'bg-blue-500/10 text-blue-500 border-blue-500/20',

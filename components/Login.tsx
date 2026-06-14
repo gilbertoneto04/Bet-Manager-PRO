@@ -132,7 +132,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
         
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent mb-2">
-            Gestão KFB
+            Gestão Gilbet
           </h1>
           <p className="text-slate-400">
             {isRegistering ? 'Crie sua conta de acesso' : 'Faça login para continuar'}

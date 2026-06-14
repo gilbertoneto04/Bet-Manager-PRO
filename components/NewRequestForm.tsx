@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { TaskStatus, Task, Account, PixKey, User, TaskType } from '../types';
-import { Save, AlertCircle, CheckCircle2, Filter } from 'lucide-react';
+import { TaskStatus, Task, Account, PixKey, User } from '../types';
+import { Save, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface NewRequestFormProps {
   onSave: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => void;

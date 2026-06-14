@@ -24,7 +24,7 @@ interface SettingsProps {
 
 export const Settings: React.FC<SettingsProps> = ({ 
   houses, 
-  setHouses,
+
   onReorderHouses,
   taskTypes, 
   onReorderTypes,

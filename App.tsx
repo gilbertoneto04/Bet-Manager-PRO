@@ -7,8 +7,9 @@ import { AccountList } from './components/AccountList';
 import { Settings } from './components/Settings';
 import { Insights } from './components/Insights';
 import { PackList } from './components/PackList';
+import { HolderList } from './components/HolderList';
 import { Login } from './components/Login';
-import { Task, LogEntry, TaskStatus, TabView, TaskType, Account, Pack, User, PixKey } from './types';
+import { Task, LogEntry, TaskStatus, TabView, TaskType, Account, Pack, User, PixKey, Holder, Transaction } from './types';
 import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, MOCK_HOUSES } from './constants';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -35,6 +36,8 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [packs, setPacks] = useState<Pack[]>([]);
+  const [holders, setHolders] = useState<Holder[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [houses, setHouses] = useState<string[]>([]); // Initialize empty, fill from DB
   const [rawHouses, setRawHouses] = useState<{id: string, name: string, order: number}[]>([]); // Keep track of IDs for sorting
   const [pixKeys, setPixKeys] = useState<PixKey[]>([]);
@@ -122,6 +125,14 @@ const App: React.FC = () => {
       setPacks(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Pack)));
     }, handleError('packs'));
 
+    const unsubHolders = onSnapshot(collection(db, 'holders'), (snapshot) => {
+      setHolders(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Holder)));
+    }, handleError('holders'));
+
+    const unsubTransactions = onSnapshot(collection(db, 'transactions'), (snapshot) => {
+      setTransactions(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)));
+    }, handleError('transactions'));
+
     const unsubPix = onSnapshot(collection(db, 'pixKeys'), (snapshot) => {
       setPixKeys(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PixKey)));
     }, handleError('pixKeys'));
@@ -163,7 +174,7 @@ const App: React.FC = () => {
     }, handleError('config_types'));
 
     return () => {
-      unsubTasks(); unsubAccounts(); unsubLogs(); unsubPacks(); unsubPix(); unsubUsers(); unsubHouses(); unsubTypes();
+      unsubTasks(); unsubAccounts(); unsubLogs(); unsubPacks(); unsubPix(); unsubUsers(); unsubHouses(); unsubTypes(); unsubHolders(); unsubTransactions();
     };
   }, [currentUser]);
 
@@ -258,7 +269,6 @@ const App: React.FC = () => {
         // Force logic: if delivered >= quantity, ensure it is COMPLETED
         const finalQty = updates.quantity !== undefined ? updates.quantity : pack.quantity;
         const finalDelivered = updates.delivered !== undefined ? updates.delivered : pack.delivered;
-        const computedStatus = finalDelivered >= finalQty ? 'COMPLETED' : 'ACTIVE';
 
         // Override status if logic dictates completion, otherwise use provided or existing status
         const finalStatus = finalDelivered >= finalQty ? 'COMPLETED' : (updates.status || pack.status);
@@ -652,10 +662,95 @@ const App: React.FC = () => {
     }
   };
   
+  // --- Holder (Titular) Handlers ---
+  const handleSaveHolder = async (holderData: Holder) => {
+    try {
+      if (holderData.id) {
+        const { id, ...data } = holderData;
+        const ref = doc(db, 'holders', id);
+        await updateDoc(ref, sanitizePayload({ ...data, updatedAt: new Date().toISOString() }));
+
+        // Cascade: keep linked accounts in sync with the holder's name (owner label)
+        const linked = accounts.filter(a => a.holderId === id);
+        if (linked.length > 0) {
+          const batch = writeBatch(db);
+          linked.forEach(a => {
+            batch.update(doc(db, 'accounts', a.id), { owner: data.name, updatedAt: new Date().toISOString() });
+          });
+          await batch.commit();
+        }
+        addLog(id, `Titular ${holderData.name}`, 'Dados do titular atualizados');
+      } else {
+        const { id, ...data } = holderData as any;
+        const ref = await addDoc(collection(db, 'holders'), sanitizePayload({
+          ...data,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }));
+        addLog(ref.id, `Titular ${holderData.name}`, 'Novo titular cadastrado');
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(`Erro ao salvar titular: ${e.message}`);
+    }
+  };
+
+  const handleDeleteHolder = async (holderId: string) => {
+    try {
+      const holder = holders.find(h => h.id === holderId);
+      const linkedCount = accounts.filter(a => a.holderId === holderId).length;
+      if (!confirm(`Excluir o titular ${holder?.name || ''}? ${linkedCount > 0 ? `Existem ${linkedCount} conta(s) vinculada(s) — elas serão desvinculadas, mas não apagadas.` : ''}`)) return;
+
+      // Unlink accounts (do not delete the accounts themselves)
+      const linked = accounts.filter(a => a.holderId === holderId);
+      if (linked.length > 0) {
+        const batch = writeBatch(db);
+        linked.forEach(a => batch.update(doc(db, 'accounts', a.id), { holderId: '' }));
+        await batch.commit();
+      }
+
+      await deleteDoc(doc(db, 'holders', holderId));
+      addLog(holderId, `Titular ${holder?.name || ''}`, 'Titular excluído');
+    } catch (e: any) {
+      alert(`Erro ao excluir titular: ${e.message}`);
+    }
+  };
+
+  // --- Transaction Handlers ---
+  const handleSaveTransaction = async (txData: Transaction) => {
+    try {
+      if (txData.id) {
+        const { id, ...data } = txData;
+        await updateDoc(doc(db, 'transactions', id), sanitizePayload(data));
+        addLog(txData.accountId, `Transação ${txData.house}`, `Transação editada (${txData.type})`);
+      } else {
+        const { id, ...data } = txData as any;
+        await addDoc(collection(db, 'transactions'), sanitizePayload({
+          ...data,
+          createdBy: currentUser?.name || 'Sistema',
+          createdAt: new Date().toISOString()
+        }));
+        addLog(txData.accountId, `Transação ${txData.house}`, `${txData.type}: R$ ${Number(txData.amount).toFixed(2)} (${txData.accountName || ''})`);
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(`Erro ao salvar transação: ${e.message}`);
+    }
+  };
+
+  const handleDeleteTransaction = async (transactionId: string) => {
+    try {
+      await deleteDoc(doc(db, 'transactions', transactionId));
+      addLog(transactionId, 'Transação', 'Transação removida');
+    } catch (e: any) {
+      alert(`Erro ao remover transação: ${e.message}`);
+    }
+  };
+
   // --- Danger Zone / Database Clearing (CHUNKED DELETE) ---
   const handleClearOperationalData = async (): Promise<number> => {
      // Function to delete entire collections in batches of 100
-     const deleteCollection = async (collectionName: string) => {
+     const deleteCollection = async (collectionName: string): Promise<number> => {
         const q = query(collection(db, collectionName), limit(100));
         const snapshot = await getDocs(q);
         
@@ -678,13 +773,14 @@ const App: React.FC = () => {
      totalDeleted += await deleteCollection('packs');
      totalDeleted += await deleteCollection('logs');
      totalDeleted += await deleteCollection('pixKeys');
+     totalDeleted += await deleteCollection('transactions');
      
      return totalDeleted;
   };
 
   // --- Settings Handlers ---
   
-  const setHousesHandler = (newHouses: string[]) => {
+  const setHousesHandler = (_newHouses: string[]) => {
       // Used by settings to add single house logic
   };
   
@@ -814,6 +910,11 @@ const App: React.FC = () => {
           <AccountList 
             accounts={accounts.filter(a => a.status === 'ACTIVE')} 
             type="ACTIVE" 
+            holders={holders}
+            transactions={transactions}
+            onSaveHolder={handleSaveHolder}
+            onSaveTransaction={handleSaveTransaction}
+            onDeleteTransaction={handleDeleteTransaction}
             packs={packs}
             pixKeys={pixKeys}
             currentUser={currentUser}
@@ -831,6 +932,11 @@ const App: React.FC = () => {
           <AccountList 
             accounts={accounts.filter(a => a.status === 'LIMITED')} 
             type="LIMITED" 
+            holders={holders}
+            transactions={transactions}
+            onSaveHolder={handleSaveHolder}
+            onSaveTransaction={handleSaveTransaction}
+            onDeleteTransaction={handleDeleteTransaction}
             packs={packs}
             pixKeys={pixKeys}
             currentUser={currentUser}
@@ -849,6 +955,11 @@ const App: React.FC = () => {
           <AccountList 
             accounts={accounts.filter(a => a.status === 'REPLACEMENT')} 
             type="REPLACEMENT" 
+            holders={holders}
+            transactions={transactions}
+            onSaveHolder={handleSaveHolder}
+            onSaveTransaction={handleSaveTransaction}
+            onDeleteTransaction={handleDeleteTransaction}
             packs={packs}
             pixKeys={pixKeys}
             currentUser={currentUser}
@@ -866,6 +977,11 @@ const App: React.FC = () => {
           <AccountList 
             accounts={accounts.filter(a => a.status === 'DELETED')} 
             type="DELETED" 
+            holders={holders}
+            transactions={transactions}
+            onSaveHolder={handleSaveHolder}
+            onSaveTransaction={handleSaveTransaction}
+            onDeleteTransaction={handleDeleteTransaction}
             packs={packs}
             pixKeys={pixKeys}
             currentUser={currentUser}
@@ -904,6 +1020,18 @@ const App: React.FC = () => {
             packs={packs}
             users={users}
             taskTypes={taskTypes}
+            transactions={transactions}
+            holders={holders}
+          />
+      )}
+      {activeTab === 'HOLDERS' && (
+          <HolderList
+            holders={holders}
+            accounts={accounts}
+            transactions={transactions}
+            availableHouses={houses}
+            onSaveHolder={handleSaveHolder}
+            onDeleteHolder={handleDeleteHolder}
           />
       )}
     </Layout>

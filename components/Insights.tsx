@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, Cell
 } from 'recharts';
-import { Task, Account, Pack, User } from '../types';
-import { Filter, TrendingUp, Clock, Hourglass, Activity, AlertTriangle, Briefcase, Calendar } from 'lucide-react';
+import { Task, Account, Pack, User, Transaction, Holder } from '../types';
+import { summarize, fmtBRL } from '../finance';
+import { Filter, TrendingUp, Clock, Hourglass, Activity, AlertTriangle, Briefcase, Wallet, ArrowDownLeft, ArrowUpRight, Landmark, DollarSign } from 'lucide-react';
 
 interface InsightsProps {
   tasks: Task[];
@@ -12,9 +13,11 @@ interface InsightsProps {
   packs: Pack[];
   users?: User[];
   taskTypes?: { label: string, value: string }[];
+  transactions?: Transaction[];
+  holders?: Holder[];
 }
 
-export const Insights: React.FC<InsightsProps> = ({ tasks, accounts, availableHouses, packs, users, taskTypes }) => {
+export const Insights: React.FC<InsightsProps> = ({ tasks, accounts, availableHouses, users, taskTypes, transactions }) => {
   // --- Filters State ---
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
@@ -183,9 +186,57 @@ export const Insights: React.FC<InsightsProps> = ({ tasks, accounts, availableHo
   }, [accounts, availableHouses, startDate, endDate]);
 
 
-  // Custom Tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  // --- 7. Financial Analytics (Transactions) ---
+  const txInRange = useMemo(() => {
+    const list = transactions || [];
+    if (!startDate && !endDate) return list;
+    return list.filter(t => isInRange(t.date));
+  }, [transactions, startDate, endDate]);
+
+  const financeGlobal = useMemo(() => summarize(txInRange), [txInRange]);
+
+  const accountsCost = useMemo(() => {
+    const consider = accounts.filter(a => a.status !== 'DELETED');
+    const totalPaid = consider.reduce((s, a) => s + (a.paidValue || 0), 0);
+    const totalInitialDeposit = consider.reduce((s, a) => s + (a.depositValue || 0), 0);
+    return { totalPaid, totalInitialDeposit, count: consider.length };
+  }, [accounts]);
+
+  const houseFinance = useMemo(() => {
+    const map: Record<string, Transaction[]> = {};
+    availableHouses.forEach(h => { map[h] = []; });
+    txInRange.forEach(t => {
+      if (!map[t.house]) map[t.house] = [];
+      map[t.house].push(t);
+    });
+    return Object.entries(map)
+      .map(([house, list]) => ({ house, ...summarize(list) }))
+      .filter(h => h.count > 0)
+      .sort((a, b) => b.pl - a.pl);
+  }, [txInRange, availableHouses]);
+
+  const houseProfitChart = useMemo(
+    () => houseFinance.map(h => ({ name: h.house, pl: parseFloat(h.pl.toFixed(2)), deposited: parseFloat(h.deposited.toFixed(2)), withdrawn: parseFloat(h.withdrawn.toFixed(2)) })),
+    [houseFinance]
+  );
+
+  const FinanceTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
+      const d = payload[0].payload;
+      return (
+        <div className="bg-slate-900 border border-slate-700 p-3 rounded-lg shadow-xl text-sm">
+          <p className="text-slate-200 font-semibold mb-1">{label}</p>
+          <p className="text-emerald-400">Sacado: {fmtBRL(d.withdrawn)}</p>
+          <p className="text-amber-400">Depositado: {fmtBRL(d.deposited)}</p>
+          <p className={d.pl >= 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>P/L: {fmtBRL(d.pl)}</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Custom Tooltip
+  const CustomTooltip = ({ active, payload, label }: any) => {    if (active && payload && payload.length) {
       return (
         <div className="bg-slate-900 border border-slate-700 p-3 rounded-lg shadow-xl">
           <p className="text-slate-200 font-semibold mb-1">{label}</p>
@@ -210,7 +261,123 @@ export const Insights: React.FC<InsightsProps> = ({ tasks, accounts, availableHo
     <div className="space-y-6 animate-fadeIn pb-10">
       <div>
         <h2 className="text-2xl font-bold text-white">Insights Avançados</h2>
-        <p className="text-slate-400 text-sm mt-1">Análise unificada de pendências e contas.</p>
+        <p className="text-slate-400 text-sm mt-1">Análise unificada de finanças, pendências e contas.</p>
+      </div>
+
+      {/* ===================== FINANCEIRO ===================== */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            <Wallet size={20} className="text-emerald-400" /> Visão Financeira
+          </h3>
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <span>Período:</span>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white" />
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white" />
+            {(startDate || endDate) && (
+              <button onClick={() => { setStartDate(''); setEndDate(''); }} className="px-2 py-1 bg-slate-800 text-slate-300 rounded-lg border border-slate-700"><Filter size={12} /></button>
+            )}
+          </div>
+        </div>
+
+        {/* Financial KPIs */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><Wallet size={13} /> Gasto em Contas (pago)</p>
+            <h3 className="text-2xl font-bold text-purple-300 font-mono">{fmtBRL(accountsCost.totalPaid)}</h3>
+            <p className="text-[11px] text-slate-500 mt-1">{accountsCost.count} contas ativas/limitadas</p>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><ArrowDownLeft size={13} className="text-emerald-400" /> Entradas</p>
+            <h3 className="text-2xl font-bold text-emerald-400 font-mono">{fmtBRL(financeGlobal.inflow)}</h3>
+            <p className="text-[11px] text-slate-500 mt-1">Saques + Pix recebidos</p>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><ArrowUpRight size={13} className="text-amber-400" /> Saídas</p>
+            <h3 className="text-2xl font-bold text-amber-400 font-mono">{fmtBRL(financeGlobal.outflow)}</h3>
+            <p className="text-[11px] text-slate-500 mt-1">Depósitos + Pix enviados</p>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <p className="text-xs text-slate-400 mb-1 flex items-center gap-1"><TrendingUp size={13} /> Lucro / Prejuízo</p>
+            <h3 className={`text-2xl font-bold font-mono ${financeGlobal.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBRL(financeGlobal.pl)}</h3>
+            <p className="text-[11px] text-slate-500 mt-1">Σ saques − Σ depósitos</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Profit per house chart */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            <h3 className="text-md font-bold text-white flex items-center gap-2 mb-4">
+              <Landmark size={18} className="text-indigo-400" /> Lucro por Casa
+            </h3>
+            <div className="h-[300px]">
+              {houseProfitChart.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-slate-600 text-sm">Sem transações no período.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={houseProfitChart} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} />
+                    <YAxis stroke="#94a3b8" fontSize={11} />
+                    <RechartsTooltip content={<FinanceTooltip />} cursor={{ fill: '#1e293b' }} />
+                    <Bar dataKey="pl" name="P/L" radius={[4, 4, 0, 0]}>
+                      {houseProfitChart.map((entry, i) => (
+                        <Cell key={i} fill={entry.pl >= 0 ? '#10b981' : '#ef4444'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          {/* House finance table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+            <h3 className="text-md font-bold text-white flex items-center gap-2 mb-4">
+              <DollarSign size={18} className="text-emerald-400" /> Movimentação por Casa
+            </h3>
+            <div className="overflow-x-auto max-h-[300px] overflow-y-auto rounded-lg border border-slate-800">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-950 text-slate-400 text-xs uppercase sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-2">Casa</th>
+                    <th className="text-right px-3 py-2">Entradas</th>
+                    <th className="text-right px-3 py-2">Saídas</th>
+                    <th className="text-right px-3 py-2">P/L</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {houseFinance.length === 0 ? (
+                    <tr><td colSpan={4} className="text-center text-slate-600 py-8">Sem dados no período.</td></tr>
+                  ) : houseFinance.map(h => (
+                    <tr key={h.house} className="hover:bg-slate-800/30">
+                      <td className="px-3 py-2 text-slate-200">{h.house}</td>
+                      <td className="px-3 py-2 text-right font-mono text-emerald-400">{fmtBRL(h.inflow)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-amber-400">{fmtBRL(h.outflow)}</td>
+                      <td className={`px-3 py-2 text-right font-mono font-bold ${h.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBRL(h.pl)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                {houseFinance.length > 0 && (
+                  <tfoot>
+                    <tr className="bg-slate-950 border-t border-slate-700 font-bold">
+                      <td className="px-3 py-2 text-slate-200">Total</td>
+                      <td className="px-3 py-2 text-right font-mono text-emerald-400">{fmtBRL(financeGlobal.inflow)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-amber-400">{fmtBRL(financeGlobal.outflow)}</td>
+                      <td className={`px-3 py-2 text-right font-mono ${financeGlobal.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBRL(financeGlobal.pl)}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-slate-800 pt-2">
+        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+          <Activity size={20} className="text-indigo-400" /> Operacional
+        </h3>
       </div>
 
       {/* KPI Cards */}

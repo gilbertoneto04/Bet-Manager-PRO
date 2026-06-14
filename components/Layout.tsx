@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, PlusCircle, History, Menu, X, Users, Ban, Settings, BarChart3, Package, RefreshCw, LogOut, Trash2 } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, History, Menu, X, Users, Ban, Settings, BarChart3, Package, RefreshCw, LogOut, Trash2, Contact } from 'lucide-react';
 import { TabView, User } from '../types';
 
 interface LayoutProps {
@@ -35,7 +35,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
       {/* Mobile Header */}
       <div className="lg:hidden flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-50">
         <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-          Gestão KFB
+          Gestão Gilbet
         </h1>
         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-slate-300 active:bg-slate-800 rounded-lg">
           {isMobileMenuOpen ? <X /> : <Menu />}
@@ -59,7 +59,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
         >
           <div className="p-6">
             <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent mb-8 hidden lg:block">
-              Gestão KFB
+              Gestão Gilbet
             </h1>
             
             <nav className="space-y-2 overflow-y-auto max-h-[calc(100vh-180px)] lg:max-h-[calc(100vh-200px)]">
@@ -68,6 +68,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
               <div className="pt-4 pb-2">
                 <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Gestão</p>
               </div>
+              <NavItem tab="HOLDERS" icon={Contact} label="Titulares" />
               <NavItem tab="PACKS" icon={Package} label="Packs de Contas" />
               <NavItem tab="ACCOUNTS_ACTIVE" icon={Users} label="Contas em Uso" />
               <NavItem tab="ACCOUNTS_LIMITED" icon={Ban} label="Contas Limitadas" />

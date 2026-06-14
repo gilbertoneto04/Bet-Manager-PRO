@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Task, TaskStatus, TaskType, Pack, PixKey, User as UserType, LogEntry, Account } from '../types';
 import { StatusBadge } from './StatusBadge';
-import { CheckCircle2, Clock, PlayCircle, Plus, Layers, Trash2, AlertOctagon, Package, Landmark, Pencil, X, GripVertical, RotateCcw, User, Info, Save, Filter, Copy, Phone, DollarSign, Key, CreditCard, Calendar } from 'lucide-react';
+import { CheckCircle2, Clock, PlayCircle, Plus, Layers, Trash2, AlertOctagon, Package, Landmark, Pencil, X, GripVertical, RotateCcw, User, Info, Save, Filter, Copy, Calendar } from 'lucide-react';
 import { ACCOUNT_STATUS_LABELS } from '../constants';
 
 interface TaskBoardProps {
@@ -201,7 +201,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
     setDraggedTaskId(null);
   };
 
-  const handleCardClick = (e: React.MouseEvent, task: Task) => {
+  const handleCardClick = (_e: React.MouseEvent, task: Task) => {
       // Find account logic
       if (task.accountName) {
           const acc = accounts.find(a => a.name === task.accountName && a.house === task.house);
@@ -1207,6 +1207,48 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
                     </button>
                     <button
                         onClick={() => setDeletingTask(null)}
+                        className="w-full py-2 text-slate-500 hover:text-slate-400 text-sm"
+                    >
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+          </div>
+      )}
+
+      {/* MODAL: KFB Finish (select which agency completed the task) */}
+      {kfbTaskToFinish && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={() => setKfbTaskToFinish(null)}>
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-3 text-emerald-500 mb-4">
+                    <CheckCircle2 size={24} />
+                    <h3 className="text-xl font-bold text-white">Finalizar Pendência</h3>
+                </div>
+                <p className="text-slate-300 mb-4 text-sm">
+                    Selecione qual Agência finalizou a tarefa.
+                </p>
+                <div className="mb-4">
+                    <label className="text-xs font-medium text-slate-400 mb-2 block">Agência Responsável</label>
+                    <select
+                        value={selectedAgentId}
+                        onChange={(e) => setSelectedAgentId(e.target.value)}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    >
+                        <option value="">Selecione...</option>
+                        {users?.filter(u => u.role === 'AGENCIA' || u.role === 'KFB').map(u => (
+                            <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex flex-col gap-3">
+                    <button
+                        onClick={confirmKfbFinish}
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium transition-colors"
+                    >
+                        Confirmar Finalização
+                    </button>
+                    <button
+                        onClick={() => setKfbTaskToFinish(null)}
                         className="w-full py-2 text-slate-500 hover:text-slate-400 text-sm"
                     >
                         Cancelar

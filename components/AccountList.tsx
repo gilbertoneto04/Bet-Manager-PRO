@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Account, Pack, PixKey, User, LogEntry, Task } from '../types';
-import { Ban, DollarSign, User as UserIcon, Mail, AlertTriangle, Search, Plus, Pencil, Save, X, CreditCard, RefreshCw, Package, Tag, Landmark, RotateCcw, Trash2, Info, Calendar, Key, AtSign, Copy, UserCheck, Phone, Eye, EyeOff } from 'lucide-react';
-import { ACCOUNT_STATUS_LABELS } from '../constants';
+import { Account, Pack, PixKey, User, LogEntry, Task, Holder, Transaction, TransactionType } from '../types';
+import { Ban, DollarSign, User as UserIcon, Mail, AlertTriangle, Search, Plus, Pencil, Save, X, CreditCard, RefreshCw, Package, Tag, RotateCcw, Trash2, Info, Calendar, Key, AtSign, Copy, UserCheck, Phone, Eye, EyeOff, ArrowDownLeft, ArrowUpRight, Contact, Wallet, ArrowRightLeft } from 'lucide-react';
+import { ACCOUNT_STATUS_LABELS, TRANSACTION_TYPE_LABELS } from '../constants';
+import { summarize, fmtBRL, isInflow } from '../finance';
 
 interface AccountListProps {
   accounts: Account[];
@@ -20,6 +21,11 @@ interface AccountListProps {
   tasks?: Task[]; 
   availableTypes?: { label: string, value: string }[];
   onLogActivity?: (context: string, action: string) => void;
+  holders?: Holder[];
+  transactions?: Transaction[];
+  onSaveHolder?: (holder: Holder) => void;
+  onSaveTransaction?: (tx: Transaction) => void;
+  onDeleteTransaction?: (transactionId: string) => void;
 }
 
 // Helper Component for Pix Selection
@@ -76,7 +82,7 @@ const PixSelectionSection: React.FC<{
     </div>
 );
 
-export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs, pixKeys, currentUser, onLimit, onReplacement, onWithdraw, onReactivate, onDelete, onSave, availableHouses, logs, tasks, availableTypes, onLogActivity }) => {
+export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs, pixKeys, currentUser, onLimit, onReplacement, onWithdraw, onReactivate, onDelete, onSave, availableHouses, logs, tasks, availableTypes, onLogActivity, holders, transactions, onSaveTransaction, onDeleteTransaction }) => {
   const [selectedAccountForLimit, setSelectedAccountForLimit] = useState<Account | null>(null);
   const [selectedAccountForReplacement, setSelectedAccountForReplacement] = useState<Account | null>(null);
   const [selectedAccountForWithdrawal, setSelectedAccountForWithdrawal] = useState<Account | null>(null);
@@ -86,6 +92,14 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
   const [editingAccount, setEditingAccount] = useState<Partial<Account> | null>(null);
   const [historyAccount, setHistoryAccount] = useState<Account | null>(null);
   const [viewingAccount, setViewingAccount] = useState<Account | null>(null);
+
+  // Contact mode for the account form (use holder's contact or a custom one for the house)
+  const [emailMode, setEmailMode] = useState<'HOLDER' | 'OTHER'>('OTHER');
+  const [phoneMode, setPhoneMode] = useState<'HOLDER' | 'OTHER'>('OTHER');
+
+  // New transaction form (inside account details modal)
+  const blankTx = { type: 'DEPOSITO' as TransactionType, amount: '', origin: '', destination: '', description: '', date: new Date().toISOString().slice(0, 10) };
+  const [newTx, setNewTx] = useState(blankTx);
   
   // Withdrawal Logic (Pix Selection)
   const [pixSelectionMode, setPixSelectionMode] = useState<'SAVED' | 'NEW' | 'NONE'>('SAVED');
@@ -234,7 +248,13 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
   const handleReplacementClick = (e: React.MouseEvent, account: Account) => { e.stopPropagation(); setSelectedAccountForReplacement(account); };
   const handleWithdrawalClick = (e: React.MouseEvent, account: Account) => { e.stopPropagation(); setSelectedAccountForWithdrawal(account); };
   const handleDeleteClick = (e: React.MouseEvent, account: Account) => { e.stopPropagation(); setSelectedAccountForDeletion(account); setDeletionReason(''); };
-  const handleEditClick = (e: React.MouseEvent, account: Account) => { e.stopPropagation(); setEditingAccount({ ...account, tags: account.tags || [] }); };
+  const handleEditClick = (e: React.MouseEvent, account: Account) => {
+    e.stopPropagation();
+    const holder = (holders || []).find(h => h.id === account.holderId);
+    setEmailMode(holder && holder.email && holder.email === account.email ? 'HOLDER' : 'OTHER');
+    setPhoneMode(holder && holder.phone && holder.phone === account.phone ? 'HOLDER' : 'OTHER');
+    setEditingAccount({ ...account, tags: account.tags || [] });
+  };
   
   const handleHistoryClick = (e: React.MouseEvent, account: Account) => { 
       e.stopPropagation(); 
@@ -283,6 +303,8 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
   
   const handleNew = () => {
     const defaultHouse = availableHouses[0] || '';
+    setEmailMode('OTHER');
+    setPhoneMode('OTHER');
     setEditingAccount({
       name: '',
       username: '',
@@ -290,12 +312,53 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       phone: '',
       house: defaultHouse,
       depositValue: 0,
+      paidValue: 0,
       password: '',
       card: '',
       status: type !== 'DELETED' ? type : 'ACTIVE',
       tags: [],
-      owner: currentUser?.name || ''
+      owner: currentUser?.name || '',
+      holderId: ''
     });
+  };
+
+  const selectedHolder = useMemo(
+    () => (holders || []).find(h => h.id === editingAccount?.holderId),
+    [holders, editingAccount?.holderId]
+  );
+
+  // Import a holder's data into the account being edited/created
+  const handleSelectHolder = (holderId: string) => {
+    if (!editingAccount) return;
+    if (!holderId) {
+      setEditingAccount({ ...editingAccount, holderId: '' });
+      return;
+    }
+    const h = (holders || []).find(x => x.id === holderId);
+    if (!h) return;
+    setEmailMode('HOLDER');
+    setPhoneMode('HOLDER');
+    setEditingAccount({
+      ...editingAccount,
+      holderId,
+      name: h.name,              // Nome do Titular
+      owner: h.name,
+      email: h.email || '',      // por padrão usa o e-mail do titular
+      phone: h.phone || ''       // por padrão usa o telefone do titular
+    });
+  };
+
+  const setEmailModeAndValue = (mode: 'HOLDER' | 'OTHER') => {
+    setEmailMode(mode);
+    if (mode === 'HOLDER' && selectedHolder && editingAccount) {
+      setEditingAccount({ ...editingAccount, email: selectedHolder.email || '' });
+    }
+  };
+  const setPhoneModeAndValue = (mode: 'HOLDER' | 'OTHER') => {
+    setPhoneMode(mode);
+    if (mode === 'HOLDER' && selectedHolder && editingAccount) {
+      setEditingAccount({ ...editingAccount, phone: selectedHolder.phone || '' });
+    }
   };
 
   const handleAddTag = (e: React.KeyboardEvent) => {
@@ -332,7 +395,8 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       onSave(
           {
             ...editingAccount,
-            depositValue: editingAccount.depositValue ?? 0
+            depositValue: editingAccount.depositValue ?? 0,
+            paidValue: editingAccount.paidValue ?? 0
           } as Account, 
           (!editingAccount.id && usePack && selectedPackId) ? selectedPackId : undefined
       );
@@ -394,6 +458,39 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       return null;
   };
 
+  // --- Transactions per account ---
+  const getAccountTransactions = (accountId: string) =>
+    (transactions || [])
+      .filter(t => t.accountId === accountId)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const handleAddTransaction = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viewingAccount || !onSaveTransaction) return;
+    const amount = parseFloat(String(newTx.amount));
+    if (!amount || amount <= 0) {
+      alert('Informe um valor válido para a transação.');
+      return;
+    }
+    onSaveTransaction({
+      id: '',
+      accountId: viewingAccount.id,
+      accountName: viewingAccount.name,
+      holderId: viewingAccount.holderId || '',
+      house: viewingAccount.house,
+      type: newTx.type,
+      amount,
+      origin: newTx.origin?.trim() || undefined,
+      destination: newTx.destination?.trim() || undefined,
+      description: newTx.description?.trim() || undefined,
+      date: newTx.date ? new Date(newTx.date + 'T12:00:00').toISOString() : new Date().toISOString(),
+      createdAt: new Date().toISOString()
+    });
+    setNewTx(blankTx);
+  };
+
+  const accountTxSummary = (accountId: string) => summarize(getAccountTransactions(accountId));
+
   return (
     <div className="space-y-6">
       {/* Header & Controls */}
@@ -452,7 +549,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
             return (
           <div 
             key={account.id} 
-            onClick={() => setViewingAccount(account)}
+            onClick={() => { setNewTx(blankTx); setViewingAccount(account); }}
             className={`bg-slate-900 border rounded-xl p-5 shadow-sm transition-all group relative cursor-pointer ${
                 pendingTaskName ? 'border-amber-500/50 shadow-[0_0_15px_-5px_rgba(245,158,11,0.3)]' : 'border-slate-800 hover:border-indigo-500/30'
             }`}
@@ -672,9 +769,16 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
               )}
 
               {/* Balance */}
-              <div className="col-span-2 flex items-center gap-2 mt-2 pt-2 border-t border-slate-800/50">
-                <DollarSign size={14} className="text-emerald-400 shrink-0" />
-                <span className="text-white font-mono font-bold">R$ {account.depositValue.toFixed(2)}</span>
+              <div className="col-span-2 flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-800/50">
+                <div className="flex items-center gap-2">
+                    <DollarSign size={14} className="text-emerald-400 shrink-0" />
+                    <span className="text-white font-mono font-bold">R$ {account.depositValue.toFixed(2)}</span>
+                </div>
+                {!!account.paidValue && account.paidValue > 0 && (
+                    <span className="text-[10px] text-purple-300 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded font-mono" title="Valor pago na conta">
+                        Pago: R$ {account.paidValue.toFixed(2)}
+                    </span>
+                )}
               </div>
               
             </div>
@@ -714,9 +818,13 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       </div>
 
       {/* Account Details Modal */}
-      {viewingAccount && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={(e) => e.stopPropagation()}>
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl relative flex flex-col max-h-[90vh]">
+      {viewingAccount && (() => {
+        const acctTxs = getAccountTransactions(viewingAccount.id);
+        const sum = accountTxSummary(viewingAccount.id);
+        const linkedHolder = (holders || []).find(h => h.id === viewingAccount.holderId);
+        return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={() => setViewingAccount(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl relative flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
              <div className="p-6 pb-2 shrink-0 border-b border-slate-800/50">
                  <button onClick={() => setViewingAccount(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 bg-slate-800/50 rounded-full"><X size={20}/></button>
                  <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2 pr-8">
@@ -727,8 +835,19 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
              </div>
 
              <div className="p-6 pt-4 overflow-y-auto space-y-4">
+                {linkedHolder && (
+                    <div className="p-4 bg-indigo-500/5 rounded-xl border border-indigo-500/20">
+                        <p className="text-xs text-indigo-300/80 uppercase font-bold mb-2 flex items-center gap-1"><Contact size={12}/> Titular</p>
+                        <div className="space-y-1 text-sm text-slate-300">
+                            <div className="flex justify-between"><span>Nome:</span> <span className="text-white">{linkedHolder.name}</span></div>
+                            <div className="flex justify-between"><span>E-mail do titular:</span> <span className="text-white select-all">{linkedHolder.email || '—'}</span></div>
+                            <div className="flex justify-between"><span>Telefone do titular:</span> <span className="text-white select-all">{linkedHolder.phone || '—'}</span></div>
+                        </div>
+                    </div>
+                )}
+
                 <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
-                    <p className="text-xs text-slate-500 uppercase font-bold mb-2">Credenciais</p>
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-2">Credenciais (nesta casa)</p>
                     <div className="space-y-2 text-sm text-slate-300">
                         <div className="flex justify-between items-center group/item">
                             <span>Email:</span> 
@@ -767,8 +886,110 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
 
                 <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
                     <p className="text-xs text-slate-500 uppercase font-bold mb-2">Financeiro</p>
-                    <div className="space-y-2 text-sm text-slate-300">
-                        <div className="flex justify-between"><span>Depósito Inicial:</span> <span className="text-emerald-400 font-mono">R$ {viewingAccount.depositValue.toFixed(2)}</span></div>
+                    <div className="grid grid-cols-2 gap-2 text-sm text-slate-300">
+                        <div className="flex justify-between col-span-2"><span>Depósito Inicial:</span> <span className="text-emerald-400 font-mono">{fmtBRL(viewingAccount.depositValue)}</span></div>
+                        <div className="flex justify-between col-span-2"><span>Valor Pago na Conta:</span> <span className="text-slate-200 font-mono">{fmtBRL(viewingAccount.paidValue || 0)}</span></div>
+                        <div className="flex justify-between col-span-2 pt-2 border-t border-slate-700/50"><span>Total Depositado (transações):</span> <span className="text-amber-400 font-mono">{fmtBRL(sum.deposited)}</span></div>
+                        <div className="flex justify-between col-span-2"><span>Total Sacado (transações):</span> <span className="text-emerald-400 font-mono">{fmtBRL(sum.withdrawn)}</span></div>
+                        <div className="flex justify-between col-span-2"><span>Entradas / Saídas:</span> <span className="font-mono"><span className="text-emerald-400">{fmtBRL(sum.inflow)}</span> <span className="text-slate-500">/</span> <span className="text-amber-400">{fmtBRL(sum.outflow)}</span></span></div>
+                        <div className="flex justify-between col-span-2 pt-2 border-t border-slate-700/50"><span className="font-bold">P/L da Conta:</span> <span className={`font-mono font-bold ${sum.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBRL(sum.pl)}</span></div>
+                    </div>
+                </div>
+
+                {/* Transactions Section */}
+                <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-3 flex items-center gap-1"><ArrowRightLeft size={12}/> Transações</p>
+
+                    {onSaveTransaction && (
+                    <form onSubmit={handleAddTransaction} className="space-y-2 mb-4 bg-slate-900/60 p-3 rounded-lg border border-slate-700/50">
+                        <div className="grid grid-cols-2 gap-2">
+                            <select
+                                value={newTx.type}
+                                onChange={(e) => setNewTx({ ...newTx, type: e.target.value as TransactionType })}
+                                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white"
+                            >
+                                {Object.entries(TRANSACTION_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                            </select>
+                            <div className="relative">
+                                <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 text-emerald-500" size={13} />
+                                <input
+                                    type="number" step="0.01" min="0" placeholder="Valor"
+                                    value={newTx.amount}
+                                    onChange={(e) => setNewTx({ ...newTx, amount: e.target.value })}
+                                    className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-7 pr-2 py-2 text-xs text-white"
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <input
+                                type="text" placeholder="Origem (opcional)"
+                                value={newTx.origin}
+                                onChange={(e) => setNewTx({ ...newTx, origin: e.target.value })}
+                                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white"
+                            />
+                            <input
+                                type="text" placeholder="Destino (opcional)"
+                                value={newTx.destination}
+                                onChange={(e) => setNewTx({ ...newTx, destination: e.target.value })}
+                                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <input
+                                type="text" placeholder="Descrição (opcional)"
+                                value={newTx.description}
+                                onChange={(e) => setNewTx({ ...newTx, description: e.target.value })}
+                                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white"
+                            />
+                            <input
+                                type="date"
+                                value={newTx.date}
+                                onChange={(e) => setNewTx({ ...newTx, date: e.target.value })}
+                                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white"
+                            />
+                        </div>
+                        <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-2 rounded-lg flex items-center justify-center gap-1 transition-colors">
+                            <Plus size={14} /> Adicionar Transação
+                        </button>
+                    </form>
+                    )}
+
+                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                        {acctTxs.length === 0 ? (
+                            <p className="text-center text-slate-600 text-xs py-4">Nenhuma transação registrada.</p>
+                        ) : acctTxs.map(tx => {
+                            const inflow = isInflow(tx.type);
+                            return (
+                            <div key={tx.id} className="flex items-center justify-between gap-2 bg-slate-900/60 border border-slate-700/50 rounded-lg p-2 group/tx">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${inflow ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                                        {inflow ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
+                                    </span>
+                                    <div className="min-w-0">
+                                        <p className="text-xs text-slate-200 font-medium truncate">
+                                            {TRANSACTION_TYPE_LABELS[tx.type] || tx.type}
+                                            {(tx.origin || tx.destination) && (
+                                                <span className="text-slate-500 font-normal"> · {tx.origin ? `de ${tx.origin}` : ''}{tx.origin && tx.destination ? ' ' : ''}{tx.destination ? `→ ${tx.destination}` : ''}</span>
+                                            )}
+                                        </p>
+                                        <p className="text-[10px] text-slate-500 truncate">
+                                            {new Date(tx.date).toLocaleDateString('pt-BR')}{tx.description ? ` · ${tx.description}` : ''}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <span className={`text-xs font-mono font-bold ${inflow ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                        {inflow ? '+' : '-'}{fmtBRL(tx.amount)}
+                                    </span>
+                                    {onDeleteTransaction && (
+                                        <button onClick={() => onDeleteTransaction(tx.id)} className="text-slate-600 hover:text-red-400 opacity-0 group-hover/tx:opacity-100 transition-opacity" title="Remover transação">
+                                            <Trash2 size={13} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -786,12 +1007,13 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
              </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* History Modal */}
       {historyAccount && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl relative max-h-[80vh] flex flex-col">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={() => setHistoryAccount(null)}>
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl relative max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
                 <button onClick={() => setHistoryAccount(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X /></button>
                 <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
                     <RotateCcw size={20} className="text-indigo-400" />
@@ -822,8 +1044,8 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
 
       {/* MODAL: Limit Confirmation */}
       {selectedAccountForLimit && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={resetModals}>
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center gap-3 text-amber-500 mb-4">
                     <Ban size={24} />
                     <h3 className="text-xl font-bold text-white">Limitar Conta</h3>
@@ -871,8 +1093,8 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
 
       {/* MODAL: Replacement Confirmation */}
       {selectedAccountForReplacement && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={resetModals}>
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center gap-3 text-rose-500 mb-4">
                     <RefreshCw size={24} />
                     <h3 className="text-xl font-bold text-white">Solicitar Reposição</h3>
@@ -920,8 +1142,8 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
 
       {/* MODAL: Withdraw Confirmation */}
       {selectedAccountForWithdrawal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={resetModals}>
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center gap-3 text-emerald-500 mb-4">
                     <DollarSign size={24} />
                     <h3 className="text-xl font-bold text-white">Solicitar Saque Manual</h3>
@@ -960,8 +1182,8 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
 
       {/* MODAL: Delete Confirmation */}
       {selectedAccountForDeletion && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={resetModals}>
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center gap-3 text-red-500 mb-4">
                     <Trash2 size={24} />
                     <h3 className="text-xl font-bold text-white">Excluir Conta</h3>
@@ -1006,8 +1228,8 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
 
       {/* Edit/Create Modal */}
       {editingAccount && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={() => setEditingAccount(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
              
              {/* Fixed Header */}
              <div className="flex items-center justify-between p-6 border-b border-slate-800 shrink-0 bg-slate-900 rounded-t-2xl">
@@ -1026,6 +1248,26 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
              {/* Scrollable Content */}
              <div className="p-6 overflow-y-auto">
                  <form onSubmit={handleSaveForm} className="space-y-4">
+                    {/* Holder (Titular) selector */}
+                    {holders && holders.length > 0 && (
+                    <div className="space-y-1 bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3">
+                        <label className="text-xs font-medium text-indigo-300 flex items-center gap-1"><Contact size={13}/> Titular cadastrado</label>
+                        <select
+                            value={editingAccount.holderId || ''}
+                            onChange={(e) => handleSelectHolder(e.target.value)}
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500"
+                        >
+                            <option value="">— Nenhum (preencher manualmente) —</option>
+                            {holders.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+                        </select>
+                        {selectedHolder && (
+                            <p className="text-[11px] text-slate-500 mt-1">
+                                Dados do titular importados: {selectedHolder.email || 'sem e-mail'} · {selectedHolder.phone || 'sem telefone'}
+                            </p>
+                        )}
+                    </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                         <label className="text-xs font-medium text-slate-400">Casa</label>
@@ -1056,6 +1298,28 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                             />
                         </div>
                     </div>
+                    </div>
+
+                    {/* Valor pago na conta */}
+                    <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-400 flex items-center gap-1"><Wallet size={12}/> Valor Pago na Conta</label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" size={14} />
+                            <input 
+                                type="number"
+                                step="0.01"
+                                value={editingAccount.paidValue === undefined ? '' : editingAccount.paidValue}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setEditingAccount({
+                                        ...editingAccount,
+                                        paidValue: val === '' ? undefined : parseFloat(val)
+                                    });
+                                }}
+                                placeholder="0.00"
+                                className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-8 pr-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
                     </div>
 
                     {/* Owner Field */}
@@ -1117,27 +1381,46 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                     {/* Email and Phone Side by Side */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-slate-400">Email de Acesso</label>
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-medium text-slate-400">Email (nesta casa)</label>
+                                {selectedHolder && (
+                                    <div className="flex gap-1">
+                                        <button type="button" onClick={() => setEmailModeAndValue('HOLDER')} className={`text-[10px] px-1.5 py-0.5 rounded border ${emailMode === 'HOLDER' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-600 text-slate-400'}`}>Do titular</button>
+                                        <button type="button" onClick={() => setEmailModeAndValue('OTHER')} className={`text-[10px] px-1.5 py-0.5 rounded border ${emailMode === 'OTHER' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-600 text-slate-400'}`}>Outro</button>
+                                    </div>
+                                )}
+                            </div>
                             <div className="relative">
                                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={14} />
                                 <input 
                                 type="text"
                                 value={editingAccount.email}
+                                readOnly={!!selectedHolder && emailMode === 'HOLDER'}
                                 onChange={(e) => setEditingAccount({...editingAccount, email: e.target.value})}
-                                className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500"
+                                placeholder="email@cadastrado.com"
+                                className={`w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500 ${selectedHolder && emailMode === 'HOLDER' ? 'opacity-70' : ''}`}
                                 />
                             </div>
                         </div>
                         <div className="space-y-1">
-                            <label className="text-xs font-medium text-slate-400">Telefone</label>
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-medium text-slate-400">Telefone (nesta casa)</label>
+                                {selectedHolder && (
+                                    <div className="flex gap-1">
+                                        <button type="button" onClick={() => setPhoneModeAndValue('HOLDER')} className={`text-[10px] px-1.5 py-0.5 rounded border ${phoneMode === 'HOLDER' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-600 text-slate-400'}`}>Do titular</button>
+                                        <button type="button" onClick={() => setPhoneModeAndValue('OTHER')} className={`text-[10px] px-1.5 py-0.5 rounded border ${phoneMode === 'OTHER' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-600 text-slate-400'}`}>Outro</button>
+                                    </div>
+                                )}
+                            </div>
                             <div className="relative">
                                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400" size={14} />
                                 <input 
                                 type="text"
                                 value={editingAccount.phone || ''}
+                                readOnly={!!selectedHolder && phoneMode === 'HOLDER'}
                                 onChange={(e) => setEditingAccount({...editingAccount, phone: e.target.value})}
                                 placeholder="(00) 00000-0000"
-                                className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500"
+                                className={`w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500 ${selectedHolder && phoneMode === 'HOLDER' ? 'opacity-70' : ''}`}
                                 />
                             </div>
                         </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Pack, Account, User, LogEntry } from '../types';
-import { Package, Plus, ChevronDown, ChevronUp, CheckCircle2, DollarSign, RefreshCw, Pencil, X, Tag, CreditCard, Ban, Trash2, User as UserIcon } from 'lucide-react';
+import { Package, Plus, ChevronDown, ChevronUp, CheckCircle2, DollarSign, Pencil, X, Tag, CreditCard, User as UserIcon } from 'lucide-react';
 import { ACCOUNT_STATUS_LABELS } from '../constants';
 
 interface PackListProps {
@@ -14,7 +14,7 @@ interface PackListProps {
   logs?: LogEntry[];
 }
 
-export const PackList: React.FC<PackListProps> = ({ packs, accounts, availableHouses, currentUser, onCreatePack, onEditPack, logs }) => {
+export const PackList: React.FC<PackListProps> = ({ packs, accounts, availableHouses, currentUser, onCreatePack, onEditPack }) => {
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'COMPLETED'>('ACTIVE');
   const [isCreating, setIsCreating] = useState(false);
   const [expandedPack, setExpandedPack] = useState<string | null>(null);

@@ -66,26 +66,58 @@ export interface Pack {
   updatedAt: string;
 }
 
+// Titular: pessoa dona dos dados das contas (nome, e-mail e telefone)
+export interface Holder {
+  id: string;
+  name: string;   // Nome do Titular
+  email: string;  // E-mail do titular
+  phone: string;  // Telefone do titular
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface Account {
   id: string;
   name: string;
   username?: string; // Login na casa de aposta
-  email: string;
+  email: string;     // E-mail efetivamente cadastrado NESTA casa (pode ser o do titular ou outro)
   password?: string; // Senha na casa de aposta
   house: string;
-  depositValue: number;
+  depositValue: number;  // Valor depositado na conta
+  paidValue?: number;    // Valor pago na conta (custo de aquisição/pagamento ao titular)
   status: 'ACTIVE' | 'LIMITED' | 'REPLACEMENT' | 'DELETED';
   limitedAt?: string;
   replacementAt?: string; // Date when marked for replacement
   deletionReason?: string;
   owner?: string;
+  holderId?: string;     // Vínculo com o Titular cadastrado
   tags: string[];
   createdAt: string;
   updatedAt?: string;
   taskIdSource?: string;
   packId?: string;
-  phone?: string;
+  phone?: string;        // Telefone efetivamente cadastrado NESTA casa (pode ser o do titular ou outro)
   card?: string; // Moved to end as requested
+}
+
+// Tipos de transação financeira de uma conta
+export type TransactionType = 'DEPOSITO' | 'SAQUE' | 'PIX_RECEBIDO' | 'PIX_ENVIADO' | 'AJUSTE' | 'OUTRO';
+
+export interface Transaction {
+  id: string;
+  accountId: string;
+  accountName?: string;
+  holderId?: string;
+  house: string;
+  type: TransactionType;
+  amount: number;        // Sempre positivo; o sinal é definido pelo tipo
+  origin?: string;       // Origem (ex.: de onde veio o Pix)
+  destination?: string;  // Destino (ex.: para onde foi o Pix / saque)
+  description?: string;
+  date: string;          // Data da transação (ISO)
+  createdBy?: string;
+  createdAt: string;
 }
 
 export interface LogEntry {
@@ -97,4 +129,4 @@ export interface LogEntry {
   timestamp: string;
 }
 
-export type TabView = 'DASHBOARD' | 'NEW_REQUEST' | 'HISTORY' | 'ACCOUNTS_ACTIVE' | 'ACCOUNTS_LIMITED' | 'ACCOUNTS_REPLACEMENT' | 'ACCOUNTS_DELETED' | 'PACKS' | 'SETTINGS' | 'INSIGHTS';
+export type TabView = 'DASHBOARD' | 'NEW_REQUEST' | 'HISTORY' | 'ACCOUNTS_ACTIVE' | 'ACCOUNTS_LIMITED' | 'ACCOUNTS_REPLACEMENT' | 'ACCOUNTS_DELETED' | 'PACKS' | 'SETTINGS' | 'INSIGHTS' | 'HOLDERS';
