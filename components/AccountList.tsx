@@ -97,9 +97,17 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
   const [emailMode, setEmailMode] = useState<'HOLDER' | 'OTHER'>('OTHER');
   const [phoneMode, setPhoneMode] = useState<'HOLDER' | 'OTHER'>('OTHER');
 
-  // New transaction form (inside account details modal)
+  // New / edit transaction form (inside account details modal)
   const blankTx = { type: 'DEPOSITO' as TransactionType, amount: '', origin: '', destination: '', description: '', date: new Date().toISOString().slice(0, 10) };
   const [newTx, setNewTx] = useState(blankTx);
+  const [editingTxId, setEditingTxId] = useState<string | null>(null);
+
+  // Reseta o formulário de transação ao abrir/fechar/trocar a conta visualizada
+  useEffect(() => {
+    setEditingTxId(null);
+    setNewTx(blankTx);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingAccount?.id]);
   
   // Withdrawal Logic (Pix Selection)
   const [pixSelectionMode, setPixSelectionMode] = useState<'SAVED' | 'NEW' | 'NONE'>('SAVED');
@@ -464,7 +472,24 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       .filter(t => t.accountId === accountId)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const handleAddTransaction = (e: React.FormEvent) => {
+  const startEditTransaction = (tx: Transaction) => {
+    setEditingTxId(tx.id);
+    setNewTx({
+      type: tx.type,
+      amount: String(tx.amount ?? ''),
+      origin: tx.origin || '',
+      destination: tx.destination || '',
+      description: tx.description || '',
+      date: tx.date ? new Date(tx.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+    });
+  };
+
+  const cancelEditTransaction = () => {
+    setEditingTxId(null);
+    setNewTx(blankTx);
+  };
+
+  const handleSubmitTransaction = (e: React.FormEvent) => {
     e.preventDefault();
     if (!viewingAccount || !onSaveTransaction) return;
     const amount = parseFloat(String(newTx.amount));
@@ -472,8 +497,10 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       alert('Informe um valor válido para a transação.');
       return;
     }
+    // Preserva createdAt original quando estiver editando
+    const existing = editingTxId ? (transactions || []).find(t => t.id === editingTxId) : undefined;
     onSaveTransaction({
-      id: '',
+      id: editingTxId || '',
       accountId: viewingAccount.id,
       accountName: viewingAccount.name,
       holderId: viewingAccount.holderId || '',
@@ -484,8 +511,9 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       destination: newTx.destination?.trim() || undefined,
       description: newTx.description?.trim() || undefined,
       date: newTx.date ? new Date(newTx.date + 'T12:00:00').toISOString() : new Date().toISOString(),
-      createdAt: new Date().toISOString()
+      createdAt: existing?.createdAt || new Date().toISOString()
     });
+    setEditingTxId(null);
     setNewTx(blankTx);
   };
 
@@ -901,7 +929,10 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                     <p className="text-xs text-slate-500 uppercase font-bold mb-3 flex items-center gap-1"><ArrowRightLeft size={12}/> Transações</p>
 
                     {onSaveTransaction && (
-                    <form onSubmit={handleAddTransaction} className="space-y-2 mb-4 bg-slate-900/60 p-3 rounded-lg border border-slate-700/50">
+                    <form onSubmit={handleSubmitTransaction} className={`space-y-2 mb-4 bg-slate-900/60 p-3 rounded-lg border ${editingTxId ? 'border-indigo-500/60 ring-1 ring-indigo-500/30' : 'border-slate-700/50'}`}>
+                        {editingTxId && (
+                            <p className="text-[11px] text-indigo-300 font-semibold flex items-center gap-1"><Pencil size={11}/> Editando transação</p>
+                        )}
                         <div className="grid grid-cols-2 gap-2">
                             <select
                                 value={newTx.type}
@@ -948,9 +979,16 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                                 className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white"
                             />
                         </div>
-                        <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-2 rounded-lg flex items-center justify-center gap-1 transition-colors">
-                            <Plus size={14} /> Adicionar Transação
-                        </button>
+                        <div className="flex gap-2">
+                            <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-2 rounded-lg flex items-center justify-center gap-1 transition-colors">
+                                {editingTxId ? <><Save size={14} /> Salvar Alterações</> : <><Plus size={14} /> Adicionar Transação</>}
+                            </button>
+                            {editingTxId && (
+                                <button type="button" onClick={cancelEditTransaction} className="px-3 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold py-2 rounded-lg flex items-center justify-center gap-1 transition-colors" title="Cancelar edição">
+                                    <X size={14} /> Cancelar
+                                </button>
+                            )}
+                        </div>
                     </form>
                     )}
 
@@ -981,6 +1019,11 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                                     <span className={`text-xs font-mono font-bold ${inflow ? 'text-emerald-400' : 'text-amber-400'}`}>
                                         {inflow ? '+' : '-'}{fmtBRL(tx.amount)}
                                     </span>
+                                    {onSaveTransaction && (
+                                        <button onClick={() => startEditTransaction(tx)} className={`hover:text-indigo-400 transition-opacity ${editingTxId === tx.id ? 'text-indigo-400 opacity-100' : 'text-slate-600 opacity-0 group-hover/tx:opacity-100'}`} title="Editar transação">
+                                            <Pencil size={13} />
+                                        </button>
+                                    )}
                                     {onDeleteTransaction && (
                                         <button onClick={() => onDeleteTransaction(tx.id)} className="text-slate-600 hover:text-red-400 opacity-0 group-hover/tx:opacity-100 transition-opacity" title="Remover transação">
                                             <Trash2 size={13} />

@@ -653,6 +653,44 @@ const App: React.FC = () => {
                       addLog(id, `Sincronização - ${data.name}`, `Atualizou ${tasksSnap.size} pendências antigas para a nova casa/nome.`);
                   }
               }
+
+              // 4. SINCRONIZA O DEPÓSITO INICIAL COM O LEDGER DE TRANSAÇÕES (P&L)
+              const oldDeposit = Number(oldData.depositValue) || 0;
+              const newDeposit = Number(data.depositValue) || 0;
+              if (oldDeposit !== newDeposit) {
+                  const INITIAL_DEP_DESC = 'Depósito inicial (cadastro da conta)';
+                  const initialTx = transactions.find(t =>
+                      t.accountId === id && t.type === 'DEPOSITO' && t.description === INITIAL_DEP_DESC
+                  );
+                  if (initialTx) {
+                      if (newDeposit > 0) {
+                          await updateDoc(doc(db, 'transactions', initialTx.id), sanitizePayload({
+                              amount: newDeposit,
+                              accountName: data.name,
+                              house: data.house,
+                              holderId: data.holderId || ''
+                          }));
+                      } else {
+                          // Depósito zerado: remove a transação inicial vinculada
+                          await deleteDoc(doc(db, 'transactions', initialTx.id));
+                      }
+                  } else if (newDeposit > 0) {
+                      // Conta antiga sem transação inicial: cria agora para alimentar o P&L
+                      await addDoc(collection(db, 'transactions'), sanitizePayload({
+                          accountId: id,
+                          accountName: data.name,
+                          holderId: data.holderId || '',
+                          house: data.house,
+                          type: 'DEPOSITO',
+                          amount: newDeposit,
+                          description: INITIAL_DEP_DESC,
+                          date: new Date().toISOString(),
+                          createdBy: currentUser?.name || 'Sistema',
+                          createdAt: new Date().toISOString()
+                      }));
+                  }
+                  addLog(id, `Conta ${data.name}`, `Depósito inicial sincronizado: R$ ${newDeposit.toFixed(2)}`);
+              }
           }
           addLog(id, `Conta ${accountData.name}`, 'Dados da conta atualizados manualmente');
         } else {
