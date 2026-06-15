@@ -25,6 +25,10 @@ export const ACCOUNT_STATUS_LABELS: Record<string, string> = {
   'DELETED': 'Excluída'
 };
 
+// Descrição padrão da transação de depósito inicial gerada no cadastro da conta.
+// O campo "Valor Depósito" da conta é a fonte de verdade; esta transação é seu espelho no ledger.
+export const INITIAL_DEPOSIT_DESCRIPTION = 'Depósito inicial (cadastro da conta)';
+
 export const TRANSACTION_TYPE_LABELS: Record<string, string> = {
   'DEPOSITO': 'Depósito',
   'SAQUE': 'Saque',

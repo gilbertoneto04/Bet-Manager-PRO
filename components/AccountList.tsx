@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Account, Pack, PixKey, User, LogEntry, Task, Holder, Transaction, TransactionType } from '../types';
-import { Ban, DollarSign, User as UserIcon, Mail, AlertTriangle, Search, Plus, Pencil, Save, X, CreditCard, RefreshCw, Package, Tag, RotateCcw, Trash2, Info, Calendar, Key, AtSign, Copy, UserCheck, Phone, Eye, EyeOff, ArrowDownLeft, ArrowUpRight, Contact, Wallet, ArrowRightLeft } from 'lucide-react';
-import { ACCOUNT_STATUS_LABELS, TRANSACTION_TYPE_LABELS } from '../constants';
+import { Ban, DollarSign, User as UserIcon, Mail, AlertTriangle, Search, Plus, Pencil, Save, X, CreditCard, RefreshCw, Package, Tag, RotateCcw, Trash2, Info, Calendar, Key, AtSign, Copy, UserCheck, Phone, Eye, EyeOff, ArrowDownLeft, ArrowUpRight, Contact, Wallet, ArrowRightLeft, Lock } from 'lucide-react';
+import { ACCOUNT_STATUS_LABELS, TRANSACTION_TYPE_LABELS, INITIAL_DEPOSIT_DESCRIPTION } from '../constants';
 import { summarize, fmtBRL, isInflow } from '../finance';
 
 interface AccountListProps {
@@ -472,7 +472,13 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
       .filter(t => t.accountId === accountId)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+  // A transação de depósito inicial é espelho do campo "Valor Depósito" da conta.
+  // Para não divergir do P/L, ela não é editável/excluível aqui — só pelo campo da conta.
+  const isInitialDeposit = (tx: Transaction) =>
+    tx.type === 'DEPOSITO' && tx.description === INITIAL_DEPOSIT_DESCRIPTION;
+
   const startEditTransaction = (tx: Transaction) => {
+    if (isInitialDeposit(tx)) return;
     setEditingTxId(tx.id);
     setNewTx({
       type: tx.type,
@@ -997,6 +1003,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                             <p className="text-center text-slate-600 text-xs py-4">Nenhuma transação registrada.</p>
                         ) : acctTxs.map(tx => {
                             const inflow = isInflow(tx.type);
+                            const locked = isInitialDeposit(tx);
                             return (
                             <div key={tx.id} className="flex items-center justify-between gap-2 bg-slate-900/60 border border-slate-700/50 rounded-lg p-2 group/tx">
                                 <div className="flex items-center gap-2 min-w-0">
@@ -1019,6 +1026,12 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                                     <span className={`text-xs font-mono font-bold ${inflow ? 'text-emerald-400' : 'text-amber-400'}`}>
                                         {inflow ? '+' : '-'}{fmtBRL(tx.amount)}
                                     </span>
+                                    {locked ? (
+                                        <span className="text-slate-600" title="Depósito inicial — edite pelo campo 'Valor Depósito' da conta">
+                                            <Lock size={12} />
+                                        </span>
+                                    ) : (
+                                    <>
                                     {onSaveTransaction && (
                                         <button onClick={() => startEditTransaction(tx)} className={`hover:text-indigo-400 transition-opacity ${editingTxId === tx.id ? 'text-indigo-400 opacity-100' : 'text-slate-600 opacity-0 group-hover/tx:opacity-100'}`} title="Editar transação">
                                             <Pencil size={13} />
@@ -1028,6 +1041,8 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                                         <button onClick={() => onDeleteTransaction(tx.id)} className="text-slate-600 hover:text-red-400 opacity-0 group-hover/tx:opacity-100 transition-opacity" title="Remover transação">
                                             <Trash2 size={13} />
                                         </button>
+                                    )}
+                                    </>
                                     )}
                                 </div>
                             </div>

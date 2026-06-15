@@ -10,7 +10,7 @@ import { PackList } from './components/PackList';
 import { HolderList } from './components/HolderList';
 import { Login } from './components/Login';
 import { Task, LogEntry, TaskStatus, TabView, TaskType, Account, Pack, User, PixKey, Holder, Transaction } from './types';
-import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, MOCK_HOUSES } from './constants';
+import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, MOCK_HOUSES, INITIAL_DEPOSIT_DESCRIPTION } from './constants';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, writeBatch, getDocs, query, limit, where } from 'firebase/firestore';
@@ -433,7 +433,7 @@ const App: React.FC = () => {
                 house: task.house,
                 type: 'DEPOSITO',
                 amount: data.depositValue,
-                description: 'Depósito inicial (cadastro da conta)',
+                description: INITIAL_DEPOSIT_DESCRIPTION,
                 date: new Date().toISOString(),
                 createdBy: currentUser?.name || 'Sistema',
                 createdAt: new Date().toISOString()
@@ -658,9 +658,8 @@ const App: React.FC = () => {
               const oldDeposit = Number(oldData.depositValue) || 0;
               const newDeposit = Number(data.depositValue) || 0;
               if (oldDeposit !== newDeposit) {
-                  const INITIAL_DEP_DESC = 'Depósito inicial (cadastro da conta)';
                   const initialTx = transactions.find(t =>
-                      t.accountId === id && t.type === 'DEPOSITO' && t.description === INITIAL_DEP_DESC
+                      t.accountId === id && t.type === 'DEPOSITO' && t.description === INITIAL_DEPOSIT_DESCRIPTION
                   );
                   if (initialTx) {
                       if (newDeposit > 0) {
@@ -683,7 +682,7 @@ const App: React.FC = () => {
                           house: data.house,
                           type: 'DEPOSITO',
                           amount: newDeposit,
-                          description: INITIAL_DEP_DESC,
+                          description: INITIAL_DEPOSIT_DESCRIPTION,
                           date: new Date().toISOString(),
                           createdBy: currentUser?.name || 'Sistema',
                           createdAt: new Date().toISOString()
@@ -716,7 +715,7 @@ const App: React.FC = () => {
               house: data.house,
               type: 'DEPOSITO',
               amount: data.depositValue,
-              description: 'Depósito inicial (cadastro da conta)',
+              description: INITIAL_DEPOSIT_DESCRIPTION,
               date: new Date().toISOString(),
               createdBy: currentUser?.name || 'Sistema',
               createdAt: new Date().toISOString()
