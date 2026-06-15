@@ -421,7 +421,25 @@ const App: React.FC = () => {
             };
             return addDoc(collection(db, 'accounts'), sanitizePayload(accountPayload));
         });
-        await Promise.all(batchPromises);
+        const createdRefs = await Promise.all(batchPromises);
+
+        // Link initial deposits to the transactions/P&L system
+        const txPromises = createdRefs.map((ref, i) => {
+            const data = accountsData[i];
+            if (!data.depositValue || data.depositValue <= 0) return null;
+            return addDoc(collection(db, 'transactions'), sanitizePayload({
+                accountId: ref.id,
+                accountName: data.name,
+                house: task.house,
+                type: 'DEPOSITO',
+                amount: data.depositValue,
+                description: 'Depósito inicial (cadastro da conta)',
+                date: new Date().toISOString(),
+                createdBy: currentUser?.name || 'Sistema',
+                createdAt: new Date().toISOString()
+            }));
+        }).filter(Boolean);
+        if (txPromises.length > 0) await Promise.all(txPromises as Promise<any>[]);
 
         if (packIdToDeduct) {
           await updatePackProgress(packIdToDeduct, deliveredCount);
@@ -650,6 +668,22 @@ const App: React.FC = () => {
           delete (newAccount as any).id;
           
           const ref = await addDoc(collection(db, 'accounts'), sanitizePayload(newAccount));
+          
+          // Link the initial deposit to the transactions/P&L system
+          if (data.depositValue && data.depositValue > 0) {
+            await addDoc(collection(db, 'transactions'), sanitizePayload({
+              accountId: ref.id,
+              accountName: data.name,
+              holderId: data.holderId || '',
+              house: data.house,
+              type: 'DEPOSITO',
+              amount: data.depositValue,
+              description: 'Depósito inicial (cadastro da conta)',
+              date: new Date().toISOString(),
+              createdBy: currentUser?.name || 'Sistema',
+              createdAt: new Date().toISOString()
+            }));
+          }
           
           if (packIdToDeduct) {
             await updatePackProgress(packIdToDeduct, 1);

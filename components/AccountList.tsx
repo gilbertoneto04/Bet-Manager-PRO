@@ -913,7 +913,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                             <div className="relative">
                                 <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 text-emerald-500" size={13} />
                                 <input
-                                    type="number" step="0.01" min="0" placeholder="Valor"
+                                    type="number" step="0.01" min="0" placeholder="Valor" onWheel={(e) => (e.currentTarget as HTMLInputElement).blur()}
                                     value={newTx.amount}
                                     onChange={(e) => setNewTx({ ...newTx, amount: e.target.value })}
                                     className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-7 pr-2 py-2 text-xs text-white"
@@ -1280,12 +1280,13 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                         </select>
                     </div>
                     <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-400">Valor Depósito</label>
+                        <label className="text-xs font-medium text-slate-400">Valor Depósito {!editingAccount.id && <span className="text-slate-500 font-normal">(inicial)</span>}</label>
                         <div className="relative">
                             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500" size={14} />
                             <input 
                                 type="number"
                                 step="0.01"
+                                onWheel={(e) => (e.currentTarget as HTMLInputElement).blur()}
                                 value={editingAccount.depositValue === undefined ? '' : editingAccount.depositValue}
                                 onChange={(e) => {
                                     const val = e.target.value;
@@ -1299,6 +1300,11 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                         </div>
                     </div>
                     </div>
+                    {!editingAccount.id && (editingAccount.depositValue || 0) > 0 && (
+                        <p className="text-[11px] text-emerald-400/70 -mt-2 flex items-center gap-1">
+                            <Info size={11}/> Será registrado como um depósito inicial nas transações e contará no P/L.
+                        </p>
+                    )}
 
                     {/* Valor pago na conta */}
                     <div className="space-y-1">
@@ -1308,6 +1314,7 @@ export const AccountList: React.FC<AccountListProps> = ({ accounts, type, packs,
                             <input 
                                 type="number"
                                 step="0.01"
+                                onWheel={(e) => (e.currentTarget as HTMLInputElement).blur()}
                                 value={editingAccount.paidValue === undefined ? '' : editingAccount.paidValue}
                                 onChange={(e) => {
                                     const val = e.target.value;

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Holder, Account, Transaction } from '../types';
 import { summarize, fmtBRL } from '../finance';
 import {
@@ -23,6 +23,18 @@ export const HolderList: React.FC<HolderListProps> = ({
   const [editing, setEditing] = useState<Partial<Holder> | null>(null);
   const [profile, setProfile] = useState<Holder | null>(null);
   const [search, setSearch] = useState('');
+
+  // Close modals on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setEditing(null);
+        setProfile(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase();
@@ -166,11 +178,19 @@ export const HolderList: React.FC<HolderListProps> = ({
                 </div>
               </div>
 
-              <div className="mt-3 flex items-center justify-between text-xs">
-                <span className="text-slate-500">P/L acumulado</span>
-                <span className={`font-mono font-bold ${stats.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {fmtBRL(stats.pl)}
-                </span>
+              <div className="mt-3 pt-3 border-t border-slate-800/50 grid grid-cols-2 gap-2 text-xs">
+                <div className="flex flex-col">
+                    <span className="text-slate-500">P/L acumulado</span>
+                    <span className={`font-mono font-bold ${stats.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {fmtBRL(stats.pl)}
+                    </span>
+                </div>
+                <div className="flex flex-col text-right">
+                    <span className="text-slate-500">Valor gasto</span>
+                    <span className="font-mono font-bold text-purple-300">
+                        {fmtBRL(accs.reduce((s, a) => s + (a.paidValue || 0), 0))}
+                    </span>
+                </div>
               </div>
             </div>
           );
