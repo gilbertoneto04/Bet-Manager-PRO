@@ -1218,7 +1218,9 @@ const App: React.FC = () => {
           <Bets
             bets={bets}
             tipsters={tipsters}
+            accounts={accounts}
             availableHouses={houses}
+            houseProviders={houseProviders}
             onSaveBet={handleSaveBet}
             onDeleteBet={handleDeleteBet}
             onSaveTipster={handleSaveTipster}

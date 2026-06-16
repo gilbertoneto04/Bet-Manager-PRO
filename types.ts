@@ -161,11 +161,26 @@ export interface Tipster {
   updatedAt?: string;
 }
 
+// Uma "entrada" da aposta: a mesma seleção pode ser colocada em várias casas/titulares
+// e/ou com valores/odds diferentes. Cada entrada tem seu stake e odd próprios.
+export interface BetPlacement {
+  id: string;
+  accountId?: string;   // conta cadastrada (opcional)
+  house?: string;
+  owner?: string;       // titular
+  provider?: string;
+  stakeUnits: number;
+  unitValue: number;    // snapshot (valor da unidade no momento)
+  odds: number;
+}
+
 export interface Bet {
   id: string;
   date: string;            // data da aposta/evento (ISO)
   time?: string;           // horário no formato HH:MM
-  tipster: string;         // nome do tipster
+  tipster: string;
+  owner?: string;          // titular (legado/resumo; o detalhe fica em placements)
+  placements?: BetPlacement[]; // entradas (multi casa/odd). Se ausente, usa os campos legados abaixo.         // nome do tipster
   unitValue: number;       // valor de 1 unidade NO MOMENTO da aposta (snapshot)
   stakeUnits: number;      // stake em unidades (R$ = stakeUnits * unitValue)
   odds: number;

@@ -1,4 +1,4 @@
-import { Transaction, TransactionType, Bet } from './types';
+import { Transaction, TransactionType, BetPlacement, BetResult } from './types';
 
 // Tipos que representam dinheiro ENTRANDO para nós (caixa +)
 export const INFLOW_TYPES: TransactionType[] = ['SAQUE', 'PIX_RECEBIDO'];
@@ -51,9 +51,11 @@ export function summarize(txs: Transaction[]): FinanceSummary {
 export const fmtBRL = (v: number) =>
   (v < 0 ? '-' : '') + 'R$ ' + Math.abs(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// --- Motor de P/L das apostas (mesma lógica do Sheets) ---
+// --- Motor de P/L das apostas (mesma lógica do Sheets, agora com múltiplas entradas) ---
 export interface BetCalc {
-  stake: number;     // stake em R$ (stakeUnits * unitValue)
+  stake: number;     // R$ total investido (soma das entradas)
+  units: number;     // unidades totais
+  avgOdds: number;   // odd média (ponderada pelo stake em R$)
   retorno: number;   // retorno bruto em R$
   pl: number;        // lucro/prejuízo em R$ (0 enquanto pendente)
   plUnits: number;   // P/L em unidades
@@ -62,30 +64,66 @@ export interface BetCalc {
   pending: boolean;  // em aberto
 }
 
-export function computeBet(b: Pick<Bet, 'result' | 'stakeUnits' | 'unitValue' | 'odds' | 'cashoutValue'>): BetCalc {
-  const unit = Number(b.unitValue) || 0;
-  const stake = (Number(b.stakeUnits) || 0) * unit;
-  const odds = Number(b.odds) || 0;
-  let retorno = stake;
-  let pending = false;
-  switch (b.result) {
-    case 'W': retorno = stake * odds; break;            // green
-    case 'L': retorno = 0; break;                       // red
-    case 'R': retorno = stake; break;                   // void (devolve)
-    case 'HW': retorno = (stake / 2) * odds + stake / 2; break; // meio green
-    case 'HL': retorno = stake / 2; break;              // meio red
-    case 'CASHED': retorno = Number(b.cashoutValue) || 0; break; // cashout (retorno informado)
-    case 'TBD':
-    default: pending = true; retorno = stake; break;    // em aberto
+// Aceita uma aposta com `placements` OU os campos legados (apostas antigas/single).
+type BetCalcInput = {
+  result: BetResult;
+  cashoutValue?: number;
+  placements?: BetPlacement[];
+  stakeUnits?: number;
+  unitValue?: number;
+  odds?: number;
+  house?: string;
+  owner?: string;
+  provider?: string;
+};
+
+// Retorna as entradas; se não houver `placements`, cria uma entrada sintética a partir dos campos legados.
+export function placementsOf(b: BetCalcInput): BetPlacement[] {
+  if (b.placements && b.placements.length) return b.placements;
+  return [{
+    id: 'legacy', house: b.house, owner: b.owner, provider: b.provider,
+    stakeUnits: Number(b.stakeUnits) || 0, unitValue: Number(b.unitValue) || 0, odds: Number(b.odds) || 0,
+  }];
+}
+
+function placementReturn(result: BetResult, s: number, o: number): number {
+  switch (result) {
+    case 'W': return s * o;
+    case 'L': return 0;
+    case 'R': return s;
+    case 'HW': return (s / 2) * o + s / 2;
+    case 'HL': return s / 2;
+    default: return s;
+  }
+}
+
+export function computeBet(b: BetCalcInput): BetCalc {
+  const ps = placementsOf(b);
+  const result = b.result;
+  const pending = !result || result === 'TBD';
+  let stake = 0, units = 0, oddW = 0, retorno = 0, plUnits = 0;
+  ps.forEach(p => {
+    const unit = Number(p.unitValue) || 0;
+    const s = (Number(p.stakeUnits) || 0) * unit;
+    const o = Number(p.odds) || 0;
+    stake += s; units += Number(p.stakeUnits) || 0; oddW += s * o;
+    if (!pending && result !== 'CASHED') {
+      const r = placementReturn(result, s, o);
+      retorno += r;
+      plUnits += unit > 0 ? (r - s) / unit : 0;
+    }
+  });
+  if (result === 'CASHED') {
+    retorno = Number(b.cashoutValue) || 0;
+    const avgUnit = units > 0 ? stake / units : 0;
+    plUnits = avgUnit > 0 ? (retorno - stake) / avgUnit : 0;
+  } else if (pending) {
+    retorno = stake;
   }
   const pl = pending ? 0 : retorno - stake;
   return {
-    stake,
-    retorno,
-    pl,
-    plUnits: unit > 0 ? pl / unit : 0,
-    roi: stake > 0 ? pl / stake : 0,
-    settled: !pending,
-    pending,
+    stake, units, avgOdds: stake > 0 ? oddW / stake : 0,
+    retorno, pl, plUnits, roi: stake > 0 ? pl / stake : 0,
+    settled: !pending, pending,
   };
 }
