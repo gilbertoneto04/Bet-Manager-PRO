@@ -5,6 +5,7 @@ import {
   Wallet, Landmark, Clock, PiggyBank, Search, Filter, Ban, RefreshCw, Building2,
   Contact, ArrowDownUp, Plus, Pencil, Trash2, X, Save, TrendingUp
 } from 'lucide-react';
+import { SaldosImport } from './SaldosImport'; // TEMP: importador do Sheets — remover na versão final
 
 interface BalancesProps {
   accounts: Account[];
@@ -250,19 +251,23 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
           <h2 className="text-2xl font-bold text-white">Saldos / Patrimônio</h2>
           <p className="text-slate-400 text-sm mt-1">Controle do saldo atual em cada casa e banco</p>
         </div>
-        <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
-          <button
-            onClick={() => setGroupBy('HOUSE')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${groupBy === 'HOUSE' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-          >
-            <Building2 size={14} /> Por Casa
-          </button>
-          <button
-            onClick={() => setGroupBy('HOLDER')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${groupBy === 'HOLDER' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-          >
-            <Contact size={14} /> Por Titular
-          </button>
+        <div className="flex items-center gap-2">
+          {/* TEMP: importador do Sheets — remover na versão final (apague só esta linha) */}
+          <SaldosImport accounts={accounts} banks={banks} holders={holders} onSaveAccount={onSaveAccount} onSaveBank={onSaveBank} />
+          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+            <button
+              onClick={() => setGroupBy('HOUSE')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${groupBy === 'HOUSE' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              <Building2 size={14} /> Por Casa
+            </button>
+            <button
+              onClick={() => setGroupBy('HOLDER')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${groupBy === 'HOLDER' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              <Contact size={14} /> Por Titular
+            </button>
+          </div>
         </div>
       </div>
 
