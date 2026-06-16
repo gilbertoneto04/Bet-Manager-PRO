@@ -120,7 +120,7 @@ const emptyBank = (): Partial<Bank> => ({ name: '', kind: 'BANK', balance: 0, pe
 export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, onSaveAccount, onSaveBank, onDeleteBank }) => {
   const [search, setSearch] = useState('');
   const [filterHouse, setFilterHouse] = useState('ALL');
-  const [filterStatus, setFilterStatus] = useState<StatusFilter>('VISIBLE');
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>('ACTIVE');
   const [sortBy, setSortBy] = useState<SortKey>('BALANCE_DESC');
   const [groupBy, setGroupBy] = useState<'HOUSE' | 'HOLDER'>('HOUSE');
   const [bankModal, setBankModal] = useState<Partial<Bank> | null>(null);
@@ -321,6 +321,84 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
         </div>
       </div>
 
+      {/* Bancos & Investimentos (primeiro da lista) */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-800 bg-slate-950/50">
+          <div className="flex items-center gap-2 min-w-0">
+            <PiggyBank size={18} className="text-sky-400 shrink-0" />
+            <h3 className="text-sm font-bold text-white">Bancos &amp; Investimentos</h3>
+            <span className="text-xs text-slate-500">{filteredBanks.length} {filteredBanks.length === 1 ? 'registro' : 'registros'}</span>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-sm font-bold text-white font-mono">{fmtBRL(banksTotal)}</span>
+            <button
+              onClick={() => setBankModal(emptyBank())}
+              className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+            >
+              <Plus size={14} /> Adicionar
+            </button>
+          </div>
+        </div>
+
+        {filteredBanks.length === 0 ? (
+          <div className="px-5 py-10 text-center text-slate-500 text-sm">
+            Nenhum banco ou investimento cadastrado. Use “Adicionar” para registrar (apenas controle — não entra no P/L).
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-800/70">
+                <tr>
+                  <th className="text-left font-semibold px-5 py-2">Banco / Investimento</th>
+                  <th className="text-left font-semibold px-3 py-2">Titular</th>
+                  <th className="text-left font-semibold px-3 py-2">Tipo</th>
+                  <th className="text-right font-semibold px-3 py-2">Saldo (R$)</th>
+                  <th className="text-right font-semibold px-3 py-2">Pendente (R$)</th>
+                  <th className="text-left font-semibold px-3 py-2">Observação</th>
+                  <th className="text-right font-semibold px-5 py-2">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/70">
+                {filteredBanks.map(b => (
+                  <tr key={b.id} className="hover:bg-slate-800/20 transition-colors">
+                    <td className="px-5 py-2.5 text-slate-100 font-medium whitespace-nowrap">{b.name}</td>
+                    <td className="px-3 py-2.5 text-slate-400 whitespace-nowrap">{bankHolderName(b)}</td>
+                    <td className="px-3 py-2.5">
+                      {b.kind === 'INVESTMENT' ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-violet-300 bg-violet-500/10 border border-violet-500/20 px-2 py-0.5 rounded-full"><TrendingUp size={10} /> Investimento</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-sky-300 bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded-full"><Landmark size={10} /> Banco</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <InlineNumber
+                        value={b.balance}
+                        onCommit={(v) => onSaveBank({ ...b, balance: v })}
+                        className={numInputClass}
+                      />
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <InlineNumber
+                        value={b.pendingBalance}
+                        onCommit={(v) => onSaveBank({ ...b, pendingBalance: v })}
+                        className={`${numInputClass} text-amber-300`}
+                      />
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-400">{b.note || '—'}</td>
+                    <td className="px-5 py-2.5">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => setBankModal({ ...b })} className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors" title="Editar"><Pencil size={14} /></button>
+                        <button onClick={() => onDeleteBank(b.id)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors" title="Excluir"><Trash2 size={14} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Grupos de contas */}
       {groups.length === 0 ? (
         <div className="py-16 text-center border border-dashed border-slate-800 rounded-2xl bg-slate-900/50">
@@ -424,84 +502,6 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
         </div>
       )}
 
-      {/* Bancos & Investimentos */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-800 bg-slate-950/50">
-          <div className="flex items-center gap-2 min-w-0">
-            <PiggyBank size={18} className="text-sky-400 shrink-0" />
-            <h3 className="text-sm font-bold text-white">Bancos &amp; Investimentos</h3>
-            <span className="text-xs text-slate-500">{filteredBanks.length} {filteredBanks.length === 1 ? 'registro' : 'registros'}</span>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <span className="text-sm font-bold text-white font-mono">{fmtBRL(banksTotal)}</span>
-            <button
-              onClick={() => setBankModal(emptyBank())}
-              className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-            >
-              <Plus size={14} /> Adicionar
-            </button>
-          </div>
-        </div>
-
-        {filteredBanks.length === 0 ? (
-          <div className="px-5 py-10 text-center text-slate-500 text-sm">
-            Nenhum banco ou investimento cadastrado. Use “Adicionar” para registrar (apenas controle — não entra no P/L).
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-800/70">
-                <tr>
-                  <th className="text-left font-semibold px-5 py-2">Banco / Investimento</th>
-                  <th className="text-left font-semibold px-3 py-2">Titular</th>
-                  <th className="text-left font-semibold px-3 py-2">Tipo</th>
-                  <th className="text-right font-semibold px-3 py-2">Saldo (R$)</th>
-                  <th className="text-right font-semibold px-3 py-2">Pendente (R$)</th>
-                  <th className="text-left font-semibold px-3 py-2">Observação</th>
-                  <th className="text-right font-semibold px-5 py-2">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/70">
-                {filteredBanks.map(b => (
-                  <tr key={b.id} className="hover:bg-slate-800/20 transition-colors">
-                    <td className="px-5 py-2.5 text-slate-100 font-medium whitespace-nowrap">{b.name}</td>
-                    <td className="px-3 py-2.5 text-slate-400 whitespace-nowrap">{bankHolderName(b)}</td>
-                    <td className="px-3 py-2.5">
-                      {b.kind === 'INVESTMENT' ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-violet-300 bg-violet-500/10 border border-violet-500/20 px-2 py-0.5 rounded-full"><TrendingUp size={10} /> Investimento</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-sky-300 bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded-full"><Landmark size={10} /> Banco</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      <InlineNumber
-                        value={b.balance}
-                        onCommit={(v) => onSaveBank({ ...b, balance: v })}
-                        className={numInputClass}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      <InlineNumber
-                        value={b.pendingBalance}
-                        onCommit={(v) => onSaveBank({ ...b, pendingBalance: v })}
-                        className={`${numInputClass} text-amber-300`}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-400">{b.note || '—'}</td>
-                    <td className="px-5 py-2.5">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => setBankModal({ ...b })} className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors" title="Editar"><Pencil size={14} /></button>
-                        <button onClick={() => onDeleteBank(b.id)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors" title="Excluir"><Trash2 size={14} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
       <p className="text-xs text-slate-600 text-center pt-1">
         Edite <span className="text-slate-400">Saldo</span> e <span className="text-slate-400">Pendente</span> direto na tabela — salva automaticamente. Bancos &amp; investimentos são só para controle e não entram no P/L.
       </p>
@@ -524,33 +524,20 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
                   type="text" autoFocus
                   value={bankModal.name || ''}
                   onChange={e => setBankModal({ ...bankModal, name: e.target.value })}
-                  placeholder="Ex.: NUBANK, SICREDI, KFB Broker"
+                  placeholder="Ex: Nubank, Sicredi, Broker"
                   className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-sky-500 outline-none"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-400">Tipo</label>
-                  <select
-                    value={bankModal.kind || 'BANK'}
-                    onChange={e => setBankModal({ ...bankModal, kind: e.target.value as Bank['kind'] })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-sky-500 outline-none"
-                  >
-                    <option value="BANK">Banco</option>
-                    <option value="INVESTMENT">Investimento</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-400">Titular</label>
-                  <select
-                    value={bankModal.holderId || ''}
-                    onChange={e => setBankModal({ ...bankModal, holderId: e.target.value })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-sky-500 outline-none"
-                  >
-                    <option value="">Sem titular</option>
-                    {holders.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-                  </select>
-                </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-400">Titular (opcional)</label>
+                <select
+                  value={bankModal.holderId || ''}
+                  onChange={e => setBankModal({ ...bankModal, holderId: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                >
+                  <option value="">Sem titular</option>
+                  {holders.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+                </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">

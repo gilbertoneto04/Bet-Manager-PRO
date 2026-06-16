@@ -18,7 +18,7 @@ interface BetsImportProps {
 
 const toNum = (s: string | number) => { const n = parseFloat(String(s).replace(',', '.')); return isNaN(n) ? 0 : n; };
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
-const round4 = (v: number) => Math.round(v * 10000) / 10000;
+const round2 = (v: number) => Math.round(v * 100) / 100;
 const sigOf = (date: string, tipster: string, stakeReais: number, odds: number, selection: string) =>
   `${(date || '').slice(0, 10)}|${norm(tipster)}|${Math.round(stakeReais)}|${odds}|${norm(selection || '')}`;
 
@@ -85,8 +85,8 @@ export const BetsImport: React.FC<BetsImportProps> = ({ bets, tipsters, onSaveBe
     plan.toImport.forEach(b => {
       const u = unitNum(b.tipster);
       onSaveBet({
-        id: '', date: b.date, tipster: b.tipster,
-        unitValue: u, stakeUnits: u > 0 ? round4(b.stakeReais / u) : 0,
+        id: '', date: b.date, time: b.time, tipster: b.tipster,
+        unitValue: u, stakeUnits: u > 0 ? round2(b.stakeReais / u) : 0,
         odds: b.odds, result: b.result, cashoutValue: b.cashoutValue,
         sport: b.sport, house: b.house, provider: b.provider,
         team1: b.team1, team2: b.team2, market: b.market, selection: b.selection,

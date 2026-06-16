@@ -164,6 +164,7 @@ export interface Tipster {
 export interface Bet {
   id: string;
   date: string;            // data da aposta/evento (ISO)
+  time?: string;           // horário no formato HH:MM
   tipster: string;         // nome do tipster
   unitValue: number;       // valor de 1 unidade NO MOMENTO da aposta (snapshot)
   stakeUnits: number;      // stake em unidades (R$ = stakeUnits * unitValue)
