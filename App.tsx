@@ -8,8 +8,10 @@ import { Settings } from './components/Settings';
 import { Insights } from './components/Insights';
 import { PackList } from './components/PackList';
 import { HolderList } from './components/HolderList';
+import { Balances } from './components/Balances';
+import { Bets } from './components/Bets';
 import { Login } from './components/Login';
-import { Task, LogEntry, TaskStatus, TabView, TaskType, Account, Pack, User, PixKey, Holder, Transaction } from './types';
+import { Task, LogEntry, TaskStatus, TabView, TaskType, Account, Pack, User, PixKey, Holder, Transaction, Bank, Tipster, Bet } from './types';
 import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, MOCK_HOUSES, INITIAL_DEPOSIT_DESCRIPTION } from './constants';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -41,6 +43,9 @@ const App: React.FC = () => {
   const [houses, setHouses] = useState<string[]>([]); // Initialize empty, fill from DB
   const [rawHouses, setRawHouses] = useState<{id: string, name: string, order: number}[]>([]); // Keep track of IDs for sorting
   const [pixKeys, setPixKeys] = useState<PixKey[]>([]);
+  const [banks, setBanks] = useState<Bank[]>([]);
+  const [tipsters, setTipsters] = useState<Tipster[]>([]);
+  const [bets, setBets] = useState<Bet[]>([]);
   
   // Task Types State - Now includes ID and Order
   const [taskTypes, setTaskTypes] = useState<{ id?: string, label: string, value: string, order?: number }[]>(
@@ -133,6 +138,18 @@ const App: React.FC = () => {
       setTransactions(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)));
     }, handleError('transactions'));
 
+    const unsubBanks = onSnapshot(collection(db, 'banks'), (snapshot) => {
+      setBanks(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Bank)));
+    }, handleError('banks'));
+
+    const unsubTipsters = onSnapshot(collection(db, 'tipsters'), (snapshot) => {
+      setTipsters(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Tipster)));
+    }, handleError('tipsters'));
+
+    const unsubBets = onSnapshot(collection(db, 'bets'), (snapshot) => {
+      setBets(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Bet)));
+    }, handleError('bets'));
+
     const unsubPix = onSnapshot(collection(db, 'pixKeys'), (snapshot) => {
       setPixKeys(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PixKey)));
     }, handleError('pixKeys'));
@@ -174,7 +191,7 @@ const App: React.FC = () => {
     }, handleError('config_types'));
 
     return () => {
-      unsubTasks(); unsubAccounts(); unsubLogs(); unsubPacks(); unsubPix(); unsubUsers(); unsubHouses(); unsubTypes(); unsubHolders(); unsubTransactions();
+      unsubTasks(); unsubAccounts(); unsubLogs(); unsubPacks(); unsubPix(); unsubUsers(); unsubHouses(); unsubTypes(); unsubHolders(); unsubTransactions(); unsubBanks(); unsubTipsters(); unsubBets();
     };
   }, [currentUser]);
 
@@ -818,6 +835,80 @@ const App: React.FC = () => {
     }
   };
 
+  // --- Bank / Investment Handlers (controle de patrimônio, fora de contas e do P/L) ---
+  const handleSaveBank = async (bankData: Bank) => {
+    try {
+      if (bankData.id) {
+        const { id, ...data } = bankData;
+        await updateDoc(doc(db, 'banks', id), sanitizePayload({ ...data, updatedAt: new Date().toISOString() }));
+        addLog(id, `Banco ${bankData.name}`, 'Banco/investimento atualizado');
+      } else {
+        const { id, ...data } = bankData as any;
+        const ref = await addDoc(collection(db, 'banks'), sanitizePayload({
+          ...data,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }));
+        addLog(ref.id, `Banco ${bankData.name}`, 'Banco/investimento cadastrado');
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(`Erro ao salvar banco: ${e.message}`);
+    }
+  };
+
+  const handleDeleteBank = async (bankId: string) => {
+    try {
+      const bank = banks.find(b => b.id === bankId);
+      if (!confirm(`Excluir o banco/investimento ${bank?.name || ''}?`)) return;
+      await deleteDoc(doc(db, 'banks', bankId));
+      addLog(bankId, `Banco ${bank?.name || ''}`, 'Banco/investimento excluído');
+    } catch (e: any) {
+      alert(`Erro ao excluir banco: ${e.message}`);
+    }
+  };
+
+  // --- Tipster Handlers ---
+  const handleSaveTipster = async (t: Tipster) => {
+    try {
+      if (t.id) {
+        const { id, ...data } = t;
+        await updateDoc(doc(db, 'tipsters', id), sanitizePayload({ ...data, updatedAt: new Date().toISOString() }));
+      } else {
+        const { id, ...data } = t as any;
+        await addDoc(collection(db, 'tipsters'), sanitizePayload({ ...data, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+      }
+    } catch (e: any) { console.error(e); alert(`Erro ao salvar tipster: ${e.message}`); }
+  };
+
+  const handleDeleteTipster = async (id: string) => {
+    try {
+      const t = tipsters.find(x => x.id === id);
+      if (!confirm(`Excluir o tipster ${t?.name || ''}? As apostas já registradas não são afetadas.`)) return;
+      await deleteDoc(doc(db, 'tipsters', id));
+    } catch (e: any) { alert(`Erro ao excluir tipster: ${e.message}`); }
+  };
+
+  // --- Bet Handlers ---
+  const handleSaveBet = async (b: Bet) => {
+    try {
+      if (b.id) {
+        const { id, ...data } = b;
+        await updateDoc(doc(db, 'bets', id), sanitizePayload({ ...data, updatedAt: new Date().toISOString() }));
+      } else {
+        const { id, ...data } = b as any;
+        await addDoc(collection(db, 'bets'), sanitizePayload({ ...data, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+      }
+    } catch (e: any) { console.error(e); alert(`Erro ao salvar aposta: ${e.message}`); }
+  };
+
+  const handleDeleteBet = async (id: string) => {
+    try {
+      if (!confirm('Excluir esta aposta?')) return;
+      await deleteDoc(doc(db, 'bets', id));
+    } catch (e: any) { alert(`Erro ao excluir aposta: ${e.message}`); }
+  };
+
   // --- Danger Zone / Database Clearing (CHUNKED DELETE) ---
   const handleClearOperationalData = async (): Promise<number> => {
      // Function to delete entire collections in batches of 100
@@ -1103,6 +1194,27 @@ const App: React.FC = () => {
             availableHouses={houses}
             onSaveHolder={handleSaveHolder}
             onDeleteHolder={handleDeleteHolder}
+          />
+      )}
+      {activeTab === 'BALANCES' && (
+          <Balances
+            accounts={accounts}
+            holders={holders}
+            banks={banks}
+            onSaveAccount={handleSaveAccount}
+            onSaveBank={handleSaveBank}
+            onDeleteBank={handleDeleteBank}
+          />
+      )}
+      {activeTab === 'BETS' && (
+          <Bets
+            bets={bets}
+            tipsters={tipsters}
+            availableHouses={houses}
+            onSaveBet={handleSaveBet}
+            onDeleteBet={handleDeleteBet}
+            onSaveTipster={handleSaveTipster}
+            onDeleteTipster={handleDeleteTipster}
           />
       )}
     </Layout>

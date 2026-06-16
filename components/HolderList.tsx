@@ -3,7 +3,7 @@ import { Holder, Account, Transaction } from '../types';
 import { summarize, fmtBRL } from '../finance';
 import {
   Contact, Plus, Pencil, Trash2, X, Save, Mail, Phone, Search, User as UserIcon,
-  BarChart3, TrendingUp, TrendingDown, Wallet, Landmark, FileText
+  BarChart3, TrendingDown, Wallet, Landmark, FileText
 } from 'lucide-react';
 
 interface HolderListProps {
@@ -80,23 +80,23 @@ export const HolderList: React.FC<HolderListProps> = ({
     const txs = holderTransactions(profile.id);
     const global = summarize(txs);
 
-    const totalInitialDeposit = accs.reduce((s, a) => s + (a.depositValue || 0), 0);
     const totalPaid = accs.reduce((s, a) => s + (a.paidValue || 0), 0);
+    const totalDeposited = global.deposited; // soma de todos os depósitos (inclui o inicial)
+    const saldoPresente = accs.reduce((s, a) => s + (a.currentBalance || 0), 0);
+    const pendente = accs.reduce((s, a) => s + (a.pendingBalance || 0), 0);
+    const plPresente = saldoPresente - totalDeposited; // P/L = saldo presente − total depositado
 
-    // P/L per house
-    const houseMap: Record<string, Transaction[]> = {};
-    txs.forEach(t => {
-      if (!houseMap[t.house]) houseMap[t.house] = [];
-      houseMap[t.house].push(t);
-    });
-    // Ensure houses where the holder has accounts also appear
-    accs.forEach(a => { if (!houseMap[a.house]) houseMap[a.house] = []; });
+    // Saldo presente e P/L por casa
+    const houses = new Set<string>([...accs.map(a => a.house), ...txs.map(t => t.house)]);
+    const perHouse = Array.from(houses).map(house => {
+      const hAccs = accs.filter(a => a.house === house);
+      const hTxs = txs.filter(t => t.house === house);
+      const saldo = hAccs.reduce((s, a) => s + (a.currentBalance || 0), 0);
+      const deposited = summarize(hTxs).deposited;
+      return { house, saldo, deposited, pl: saldo - deposited };
+    }).sort((a, b) => b.saldo - a.saldo);
 
-    const perHouse = Object.entries(houseMap)
-      .map(([house, list]) => ({ house, ...summarize(list) }))
-      .sort((a, b) => b.pl - a.pl);
-
-    return { accs, txs, global, totalInitialDeposit, totalPaid, perHouse };
+    return { accs, txs, global, totalPaid, totalDeposited, saldoPresente, pendente, plPresente, perHouse };
   }, [profile, accounts, transactions]);
 
   return (
@@ -133,7 +133,9 @@ export const HolderList: React.FC<HolderListProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map(holder => {
           const accs = holderAccounts(holder.id);
-          const stats = summarize(holderTransactions(holder.id));
+          const deposited = summarize(holderTransactions(holder.id)).deposited;
+          const saldoPresente = accs.reduce((s, a) => s + (a.currentBalance || 0), 0);
+          const plPresente = saldoPresente - deposited;
           return (
             <div
               key={holder.id}
@@ -180,15 +182,15 @@ export const HolderList: React.FC<HolderListProps> = ({
 
               <div className="mt-3 pt-3 border-t border-slate-800/50 grid grid-cols-2 gap-2 text-xs">
                 <div className="flex flex-col">
-                    <span className="text-slate-500">P/L acumulado</span>
-                    <span className={`font-mono font-bold ${stats.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {fmtBRL(stats.pl)}
+                    <span className="text-slate-500">Saldo presente</span>
+                    <span className="font-mono font-bold text-emerald-300">
+                        {fmtBRL(saldoPresente)}
                     </span>
                 </div>
                 <div className="flex flex-col text-right">
-                    <span className="text-slate-500">Valor gasto</span>
-                    <span className="font-mono font-bold text-purple-300">
-                        {fmtBRL(accs.reduce((s, a) => s + (a.paidValue || 0), 0))}
+                    <span className="text-slate-500">P/L (saldo − dep.)</span>
+                    <span className={`font-mono font-bold ${plPresente >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {fmtBRL(plPresente)}
                     </span>
                 </div>
               </div>
@@ -306,26 +308,26 @@ export const HolderList: React.FC<HolderListProps> = ({
               {/* KPI cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
-                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><BarChart3 size={12} /> P/L total</p>
-                  <p className={`text-lg font-bold font-mono ${profileStats.global.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBRL(profileStats.global.pl)}</p>
+                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><Wallet size={12} /> Saldo presente</p>
+                  <p className="text-lg font-bold font-mono text-emerald-300">{fmtBRL(profileStats.saldoPresente)}</p>
                 </div>
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
-                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><TrendingUp size={12} /> Entradas</p>
-                  <p className="text-lg font-bold font-mono text-emerald-400">{fmtBRL(profileStats.global.inflow)}</p>
+                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><TrendingDown size={12} /> Total depositado</p>
+                  <p className="text-lg font-bold font-mono text-amber-400">{fmtBRL(profileStats.totalDeposited)}</p>
                 </div>
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
-                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><TrendingDown size={12} /> Saídas</p>
-                  <p className="text-lg font-bold font-mono text-amber-400">{fmtBRL(profileStats.global.outflow)}</p>
+                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><BarChart3 size={12} /> P/L (saldo − dep.)</p>
+                  <p className={`text-lg font-bold font-mono ${profileStats.plPresente >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBRL(profileStats.plPresente)}</p>
                 </div>
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
-                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><Wallet size={12} /> Pago nas contas</p>
+                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><Landmark size={12} /> Pago nas contas</p>
                   <p className="text-lg font-bold font-mono text-slate-200">{fmtBRL(profileStats.totalPaid)}</p>
                 </div>
               </div>
 
               {/* P/L por casa */}
               <div>
-                <h4 className="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2"><Landmark size={16} className="text-indigo-400" /> P/L por Casa</h4>
+                <h4 className="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2"><Landmark size={16} className="text-indigo-400" /> Saldo &amp; P/L por Casa</h4>
                 {profileStats.perHouse.length === 0 ? (
                   <p className="text-sm text-slate-500">Sem dados financeiros para este titular ainda.</p>
                 ) : (
@@ -335,7 +337,7 @@ export const HolderList: React.FC<HolderListProps> = ({
                         <tr>
                           <th className="text-left px-3 py-2">Casa</th>
                           <th className="text-right px-3 py-2">Depositado</th>
-                          <th className="text-right px-3 py-2">Sacado</th>
+                          <th className="text-right px-3 py-2">Saldo presente</th>
                           <th className="text-right px-3 py-2">P/L</th>
                         </tr>
                       </thead>
@@ -344,7 +346,7 @@ export const HolderList: React.FC<HolderListProps> = ({
                           <tr key={h.house} className="hover:bg-slate-800/30">
                             <td className="px-3 py-2 text-slate-200">{h.house}</td>
                             <td className="px-3 py-2 text-right font-mono text-amber-400">{fmtBRL(h.deposited)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-emerald-400">{fmtBRL(h.withdrawn)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-emerald-300">{fmtBRL(h.saldo)}</td>
                             <td className={`px-3 py-2 text-right font-mono font-bold ${h.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBRL(h.pl)}</td>
                           </tr>
                         ))}

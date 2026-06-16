@@ -43,9 +43,10 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
   const [filter, setFilter] = React.useState<'ALL' | 'UNFINISHED' | TaskStatus>('UNFINISHED');
   
   // Advanced Filters
-  const [filterOwner, setFilterOwner] = useState<string>('ALL');
   const [filterHouse, setFilterHouse] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<string>('ALL');
+  const [filterStartDate, setFilterStartDate] = useState<string>('');
+  const [filterEndDate, setFilterEndDate] = useState<string>('');
 
   // Modal State for New Account Completion
   const [finishingTask, setFinishingTask] = useState<Task | null>(null);
@@ -88,15 +89,6 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
   // KFB Selection Logic
   const [kfbTaskToFinish, setKfbTaskToFinish] = useState<Task | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
-
-  // Unique Owners List for Filter
-  const uniqueOwners = useMemo(() => {
-      const owners = new Set<string>();
-      tasks.forEach(t => {
-          if (t.createdBy) owners.add(t.createdBy);
-      });
-      return Array.from(owners).sort();
-  }, [tasks]);
 
   // Keyboard Shortcuts Listener
   useEffect(() => {
@@ -145,21 +137,29 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
     }
   }, [editingPixTask, currentUser]);
 
-  // 1. First, apply Advanced Filters (Owner, House, Type) to get a base list.
+  // 1. First, apply Advanced Filters (House, Type, Registration Date) to get a base list.
   // This list is used to calculate counts for the buttons.
   const baseFilteredTasks = useMemo(() => {
     let list = [...tasks];
-    if (filterOwner !== 'ALL') {
-        list = list.filter(t => t.createdBy === filterOwner);
-    }
     if (filterHouse !== 'ALL') {
         list = list.filter(t => t.house === filterHouse);
     }
     if (filterType !== 'ALL') {
         list = list.filter(t => t.type === filterType);
     }
+    // Filter by registration date (createdAt) range
+    if (filterStartDate || filterEndDate) {
+        const start = filterStartDate ? new Date(filterStartDate).setHours(0,0,0,0) : null;
+        const end = filterEndDate ? new Date(filterEndDate).setHours(23,59,59,999) : null;
+        list = list.filter(t => {
+            const created = new Date(t.createdAt).setHours(0,0,0,0);
+            if (start && created < start) return false;
+            if (end && created > end) return false;
+            return true;
+        });
+    }
     return list;
-  }, [tasks, filterOwner, filterHouse, filterType]);
+  }, [tasks, filterHouse, filterType, filterStartDate, filterEndDate]);
 
   // 2. Then apply the Status Filter (Active Tab) to get the final list to render
   const finalRenderTasks = useMemo(() => {
@@ -179,6 +179,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
       if (onLogActivity) {
           onLogActivity('Filtro Pendências', `Alterou filtro ${type} para: ${value}`);
       }
+  };
+
+  const clearAdvancedFilters = () => {
+      setFilterHouse('ALL');
+      setFilterType('ALL');
+      setFilterStartDate('');
+      setFilterEndDate('');
   };
 
   // DnD Handlers
@@ -523,27 +530,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
 
       {/* Advanced Filters Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row gap-4 items-center">
-          <div className="flex items-center gap-2 text-slate-400 text-sm font-medium">
+          <div className="flex items-center gap-2 text-slate-400 text-sm font-medium shrink-0">
               <Filter size={16} />
               Filtros:
           </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full md:w-auto flex-1">
-              <select 
-                  value={filterOwner}
-                  onChange={(e) => {
-                      setFilterOwner(e.target.value);
-                      handleFilterChange('Dono', e.target.value);
-                  }}
-                  className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500"
-              >
-                  <option value="ALL">Todos os Donos</option>
-                  {uniqueOwners.map(owner => (
-                      <option key={owner} value={owner}>{owner}</option>
-                  ))}
-              </select>
 
-              <select 
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full md:w-auto flex-1">
+              <select
                   value={filterHouse}
                   onChange={(e) => {
                       setFilterHouse(e.target.value);
@@ -557,7 +550,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
                   ))}
               </select>
 
-              <select 
+              <select
                   value={filterType}
                   onChange={(e) => {
                       setFilterType(e.target.value);
@@ -570,7 +563,44 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, packs, pixKeys, cur
                       <option key={t.value} value={t.value}>{t.label}</option>
                   ))}
               </select>
+
+              {/* Registration Date Range (createdAt) */}
+              <div className="flex items-center gap-2 lg:col-span-2 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5" title="Filtrar pela data de cadastro da pendência">
+                  <Calendar size={15} className="text-slate-500 shrink-0" />
+                  <input
+                      type="date"
+                      value={filterStartDate}
+                      onChange={(e) => {
+                          setFilterStartDate(e.target.value);
+                          handleFilterChange('Cadastro (De)', e.target.value || 'Qualquer');
+                      }}
+                      className="bg-transparent text-sm text-white focus:outline-none flex-1 min-w-0"
+                      aria-label="Data de cadastro inicial"
+                  />
+                  <span className="text-slate-600 shrink-0">–</span>
+                  <input
+                      type="date"
+                      value={filterEndDate}
+                      onChange={(e) => {
+                          setFilterEndDate(e.target.value);
+                          handleFilterChange('Cadastro (Até)', e.target.value || 'Qualquer');
+                      }}
+                      className="bg-transparent text-sm text-white focus:outline-none flex-1 min-w-0"
+                      aria-label="Data de cadastro final"
+                  />
+              </div>
           </div>
+
+          {(filterHouse !== 'ALL' || filterType !== 'ALL' || filterStartDate || filterEndDate) && (
+              <button
+                  onClick={clearAdvancedFilters}
+                  className="shrink-0 h-[38px] px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors flex items-center justify-center gap-1 text-xs whitespace-nowrap"
+                  title="Limpar Filtros"
+              >
+                  <X size={14} />
+                  Limpar
+              </button>
+          )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

@@ -1,4 +1,4 @@
-import { Transaction, TransactionType } from './types';
+import { Transaction, TransactionType, Bet } from './types';
 
 // Tipos que representam dinheiro ENTRANDO para nós (caixa +)
 export const INFLOW_TYPES: TransactionType[] = ['SAQUE', 'PIX_RECEBIDO'];
@@ -50,3 +50,42 @@ export function summarize(txs: Transaction[]): FinanceSummary {
 
 export const fmtBRL = (v: number) =>
   (v < 0 ? '-' : '') + 'R$ ' + Math.abs(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// --- Motor de P/L das apostas (mesma lógica do Sheets) ---
+export interface BetCalc {
+  stake: number;     // stake em R$ (stakeUnits * unitValue)
+  retorno: number;   // retorno bruto em R$
+  pl: number;        // lucro/prejuízo em R$ (0 enquanto pendente)
+  plUnits: number;   // P/L em unidades
+  roi: number;       // pl / stake
+  settled: boolean;  // resolvida (não TBD)
+  pending: boolean;  // em aberto
+}
+
+export function computeBet(b: Pick<Bet, 'result' | 'stakeUnits' | 'unitValue' | 'odds' | 'cashoutValue'>): BetCalc {
+  const unit = Number(b.unitValue) || 0;
+  const stake = (Number(b.stakeUnits) || 0) * unit;
+  const odds = Number(b.odds) || 0;
+  let retorno = stake;
+  let pending = false;
+  switch (b.result) {
+    case 'W': retorno = stake * odds; break;            // green
+    case 'L': retorno = 0; break;                       // red
+    case 'R': retorno = stake; break;                   // void (devolve)
+    case 'HW': retorno = (stake / 2) * odds + stake / 2; break; // meio green
+    case 'HL': retorno = stake / 2; break;              // meio red
+    case 'CASHED': retorno = Number(b.cashoutValue) || 0; break; // cashout (retorno informado)
+    case 'TBD':
+    default: pending = true; retorno = stake; break;    // em aberto
+  }
+  const pl = pending ? 0 : retorno - stake;
+  return {
+    stake,
+    retorno,
+    pl,
+    plUnits: unit > 0 ? pl / unit : 0,
+    roi: stake > 0 ? pl / stake : 0,
+    settled: !pending,
+    pending,
+  };
+}

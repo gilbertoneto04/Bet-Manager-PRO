@@ -86,6 +86,10 @@ export interface Account {
   house: string;
   depositValue: number;  // Valor depositado na conta
   paidValue?: number;    // Valor pago na conta (custo de aquisição/pagamento ao titular)
+  currentBalance?: number;   // Saldo atual na casa/banco (mantido manualmente; espelha a aba "Saldos")
+  pendingBalance?: number;   // Saldo pendente (ex.: saque em processamento)
+  balanceNote?: string;      // Observação do saldo (ex.: "Sacar", "Depositar", "Conta bloqueada")
+  balanceUpdatedAt?: string; // Data da última atualização manual do saldo
   status: 'ACTIVE' | 'LIMITED' | 'REPLACEMENT' | 'DELETED';
   limitedAt?: string;
   replacementAt?: string; // Date when marked for replacement
@@ -129,4 +133,55 @@ export interface LogEntry {
   timestamp: string;
 }
 
-export type TabView = 'DASHBOARD' | 'NEW_REQUEST' | 'HISTORY' | 'ACCOUNTS_ACTIVE' | 'ACCOUNTS_LIMITED' | 'ACCOUNTS_REPLACEMENT' | 'ACCOUNTS_DELETED' | 'PACKS' | 'SETTINGS' | 'INSIGHTS' | 'HOLDERS';
+// Banco ou investimento avulso: controle de patrimônio, FORA das contas de aposta
+// e FORA do cálculo de P/L. Serve apenas para acompanhamento do saldo.
+export interface Bank {
+  id: string;
+  name: string;            // Nome do banco/corretora (ex.: NUBANK, SICREDI, KFB Broker)
+  kind: 'BANK' | 'INVESTMENT';
+  holderId?: string;       // Titular vinculado (opcional)
+  owner?: string;          // Nome do titular (espelho, para exibição)
+  balance: number;         // Saldo atual
+  pendingBalance?: number; // Saldo pendente
+  note?: string;           // Observação (ex.: PF, PJ, CAIXINHA)
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// Resolução de uma aposta (espelha a coluna "Result" do Sheets)
+export type BetResult = 'TBD' | 'W' | 'L' | 'R' | 'HW' | 'HL' | 'CASHED';
+
+// Tipster com valor padrão de unidade. Esse valor é apenas o DEFAULT ao criar a aposta;
+// cada aposta guarda seu próprio unitValue (snapshot) e não muda se o padrão mudar depois.
+export interface Tipster {
+  id: string;
+  name: string;
+  unitValue: number;   // valor padrão de 1 unidade (R$)
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface Bet {
+  id: string;
+  date: string;            // data da aposta/evento (ISO)
+  tipster: string;         // nome do tipster
+  unitValue: number;       // valor de 1 unidade NO MOMENTO da aposta (snapshot)
+  stakeUnits: number;      // stake em unidades (R$ = stakeUnits * unitValue)
+  odds: number;
+  result: BetResult;
+  cashoutValue?: number;   // retorno em R$ quando result = CASHED
+  sport?: string;          // esporte
+  house?: string;          // casa
+  provider?: string;       // provedor
+  team1?: string;
+  team2?: string;
+  market?: string;         // mercado
+  selection?: string;      // aposta
+  moment?: 'PRE' | 'LIVE';
+  fairOdds?: number;       // odd justa (para EV%), opcional
+  note?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type TabView = 'DASHBOARD' | 'NEW_REQUEST' | 'HISTORY' | 'ACCOUNTS_ACTIVE' | 'ACCOUNTS_LIMITED' | 'ACCOUNTS_REPLACEMENT' | 'ACCOUNTS_DELETED' | 'PACKS' | 'SETTINGS' | 'INSIGHTS' | 'HOLDERS' | 'BALANCES' | 'BETS';
