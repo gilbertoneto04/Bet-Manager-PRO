@@ -18,6 +18,7 @@ interface BetsProps {
   houseProviders: Record<string, string>;
   onSaveBet: (bet: Bet) => void;
   onDeleteBet: (id: string) => void;
+  onDeleteManyBets: (ids: string[]) => void;
   onSaveTipster: (t: Tipster) => void;
   onDeleteTipster: (id: string) => void;
 }
@@ -39,6 +40,9 @@ const resultBadgeClass = (r: BetResult) => {
 
 const num = (v: any) => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? 0 : n; };
 const round2 = (v: number) => Math.round(v * 100) / 100;
+// Stake em unidades guardado com mais casas para preservar centavos (R$ = unidades * valor da unidade).
+// Ex.: unidade=1000 e R$ 1164,96 ⇒ 1.16496u (round2 perderia os centavos).
+const round6 = (v: number) => Math.round(v * 1e6) / 1e6;
 const fmtNum = (v: number) => round2(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtU = (v: number) => `${v >= 0 ? '+' : ''}${fmtNum(v)}u`;
 const fmtDate = (d?: string) => {
@@ -92,7 +96,7 @@ type BetForm = {
   createdAt?: string; placements: PlacementForm[];
 };
 
-export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableHouses, houseProviders, onSaveBet, onDeleteBet, onSaveTipster, onDeleteTipster }) => {
+export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableHouses, houseProviders, onSaveBet, onDeleteBet, onDeleteManyBets, onSaveTipster, onDeleteTipster }) => {
   const [search, setSearch] = useState('');
   const [filterTipster, setFilterTipster] = useState('ALL');
   const [filterResult, setFilterResult] = useState<ResultFilter>('ALL');
@@ -114,6 +118,7 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
   const [showTipsters, setShowTipsters] = useState(false);
   const [tipsterForm, setTipsterForm] = useState<Partial<Tipster>>({ name: '', unitValue: 0 });
   const [displayIds, setDisplayIds] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setBetForm(null); setShowTipsters(false); setDetailBet(null); setShowCols(false); } };
@@ -122,20 +127,16 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
   }, []);
 
   const vis = (k: string) => visibleCols.has(k);
+  // Ao escolher a casa no filtro, já assume o provedor configurado dela (se houver).
+  const onChangeFilterHouse = (house: string) => {
+    setFilterHouse(house); setPage(1);
+    if (house !== 'ALL' && houseProviders[house]) setFilterProvider(houseProviders[house]);
+    else if (house === 'ALL') setFilterProvider('ALL');
+  };
   const tipsterUnit = (name: string) => tipsters.find(t => t.name === name)?.unitValue || 0;
   const activeAccounts = useMemo(() => accounts.filter(a => a.status !== 'DELETED'), [accounts]);
   const distinctBet = (key: keyof Bet) => Array.from(new Set(bets.map(b => (b[key] as string) || '').filter(Boolean))).sort();
   const distinctPlacement = (field: 'house' | 'provider') => Array.from(new Set(bets.flatMap(b => placementsOf(b).map(p => p[field] || '')).filter(Boolean))).sort();
-
-  const kpis = useMemo(() => {
-    let invested = 0, profit = 0, plUnits = 0, settled = 0, openCount = 0, openStake = 0;
-    bets.forEach(b => {
-      const c = computeBet(b);
-      if (c.pending) { openCount++; openStake += c.stake; }
-      else { settled++; invested += c.stake; profit += c.pl; plUnits += c.plUnits; }
-    });
-    return { invested, profit, plUnits, settled, openCount, openStake, total: bets.length, roi: invested > 0 ? profit / invested : 0 };
-  }, [bets]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -158,6 +159,17 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
     });
   }, [bets, search, filterTipster, filterResult, filterHouse, filterProvider, filterMarket, dateFrom, dateTo]);
 
+  // KPIs, resumo e gráficos respeitam os filtros ativos (data, mercado, casa, etc.).
+  const kpis = useMemo(() => {
+    let invested = 0, profit = 0, plUnits = 0, settled = 0, openCount = 0, openStake = 0;
+    filtered.forEach(b => {
+      const c = computeBet(b);
+      if (c.pending) { openCount++; openStake += c.stake; }
+      else { settled++; invested += c.stake; profit += c.pl; plUnits += c.plUnits; }
+    });
+    return { invested, profit, plUnits, settled, openCount, openStake, total: filtered.length, roi: invested > 0 ? profit / invested : 0 };
+  }, [filtered]);
+
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     switch (sortBy) {
       case 'DATE_ASC': return (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
@@ -179,13 +191,34 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
   const byId = useMemo(() => new Map(bets.map(b => [b.id, b])), [bets]);
   const renderBets = displayIds.map(id => byId.get(id)).filter(Boolean) as Bet[];
 
+  // ---- seleção múltipla / exclusão em massa ----
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const pageAllSelected = renderBets.length > 0 && renderBets.every(b => selectedIds.has(b.id));
+  const toggleSelectPage = () => setSelectedIds(prev => {
+    const n = new Set(prev);
+    if (pageAllSelected) renderBets.forEach(b => n.delete(b.id));
+    else renderBets.forEach(b => n.add(b.id));
+    return n;
+  });
+  const selectAllFiltered = () => setSelectedIds(new Set(sorted.map(b => b.id)));
+  const clearSelection = () => setSelectedIds(new Set());
+  const deleteSelected = () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!confirm(`Excluir ${ids.length} aposta(s) selecionada(s)? Esta ação não pode ser desfeita.`)) return;
+    onDeleteManyBets(ids);
+    clearSelection();
+  };
+  // Mantém a seleção limpa de ids que sumiram (ex.: após exclusão).
+  useEffect(() => { setSelectedIds(prev => { const n = new Set(Array.from(prev).filter(id => byId.has(id))); return n.size === prev.size ? prev : n; }); }, [byId]);
+
   const summary = useMemo(() => {
     const map = new Map<string, { count: number; stake: number; pl: number; plUnits: number }>();
     const add = (key: string, c: { stake: number; pl: number; plUnits: number }) => {
       const cur = map.get(key) || { count: 0, stake: 0, pl: 0, plUnits: 0 };
       cur.count++; cur.stake += c.stake; cur.pl += c.pl; cur.plUnits += c.plUnits; map.set(key, cur);
     };
-    bets.forEach(b => {
+    filtered.forEach(b => {
       const c = computeBet(b);
       if (c.pending) return;
       if (PLACEMENT_DIMS.includes(dimension)) {
@@ -197,13 +230,13 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
     });
     const arr = Array.from(map.entries()).map(([key, v]) => ({ key, ...v, roi: v.stake > 0 ? v.pl / v.stake : 0 }));
     return dimension === 'date' ? arr.sort((a, b) => a.key.localeCompare(b.key)) : arr.sort((a, b) => b.pl - a.pl);
-  }, [bets, dimension]);
+  }, [filtered, dimension]);
 
   const cumData = useMemo(() => {
-    const settled = bets.filter(b => !computeBet(b).pending).sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
+    const settled = filtered.filter(b => !computeBet(b).pending).sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
     let cum = 0, cumU = 0;
     return settled.map((b, i) => { const c = computeBet(b); cum += c.pl; cumU += c.plUnits; return { i, label: fmtDate(b.date), v: round2(chartUnit === 'BRL' ? cum : cumU) }; });
-  }, [bets, chartUnit]);
+  }, [filtered, chartUnit]);
   const barData = useMemo(() => summary.map(s => ({ key: dimension === 'date' ? fmtDate(s.key) : s.key, v: round2(chartUnit === 'BRL' ? s.pl : s.plUnits) })), [summary, chartUnit, dimension]);
 
   // ---- form ----
@@ -226,7 +259,7 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
   const setUnitValue = (v: number) => setBetForm(f => f ? { ...f, unitValue: v, placements: recomputeReais(f.placements, v) } : f);
   const patchPlacement = (idx: number, patch: Partial<PlacementForm>) => setBetForm(f => { if (!f) return f; const ps = [...f.placements]; ps[idx] = { ...ps[idx], ...patch }; return { ...f, placements: ps }; });
   const setPUnits = (idx: number, v: number) => setBetForm(f => { if (!f) return f; const ps = [...f.placements]; ps[idx] = { ...ps[idx], stakeUnits: v, stakeReais: round2(v * (f.unitValue || 0)) }; return { ...f, placements: ps }; });
-  const setPReais = (idx: number, v: number) => setBetForm(f => { if (!f) return f; const ps = [...f.placements]; ps[idx] = { ...ps[idx], stakeReais: v, stakeUnits: (f.unitValue || 0) > 0 ? round2(v / (f.unitValue || 1)) : 0 }; return { ...f, placements: ps }; });
+  const setPReais = (idx: number, v: number) => setBetForm(f => { if (!f) return f; const ps = [...f.placements]; ps[idx] = { ...ps[idx], stakeReais: v, stakeUnits: (f.unitValue || 0) > 0 ? round6(v / (f.unitValue || 1)) : 0 }; return { ...f, placements: ps }; });
   const pickAccount = (idx: number, accountId: string) => {
     const acc = activeAccounts.find(a => a.id === accountId);
     patchPlacement(idx, acc ? { accountId, house: acc.house, owner: acc.owner || acc.name, provider: houseProviders[acc.house] || '' } : { accountId: undefined });
@@ -248,7 +281,7 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
     const placements: BetPlacement[] = betForm.placements.filter(p => (p.stakeUnits || 0) > 0 && (p.odds || 0) > 0).map(p => ({
       id: genId(), accountId: p.accountId || undefined, house: p.house || undefined,
       owner: p.owner || undefined, provider: p.provider || (p.house ? houseProviders[p.house] : undefined) || undefined,
-      stakeUnits: round2(p.stakeUnits || 0), unitValue: unit, odds: Number(p.odds) || 0,
+      stakeUnits: round6(p.stakeUnits || 0), unitValue: unit, odds: Number(p.odds) || 0,
     }));
     if (placements.length === 0) { alert('Adicione ao menos uma entrada com stake e odd.'); return; }
     const totalUnits = placements.reduce((s, p) => s + p.stakeUnits, 0);
@@ -257,7 +290,7 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
     const first = placements[0];
     onSaveBet({
       id: betForm.id || '', date: betForm.date || todayISO(), time: betForm.time || undefined, tipster: betForm.tipster!,
-      unitValue: unit, stakeUnits: round2(totalUnits), odds: round2(avgOdds),
+      unitValue: unit, stakeUnits: round6(totalUnits), odds: round2(avgOdds),
       house: first.house, owner: first.owner, provider: first.provider, placements,
       result: (betForm.result as BetResult) || 'TBD', cashoutValue: betForm.result === 'CASHED' ? (Number(betForm.cashoutValue) || 0) : undefined,
       sport: betForm.sport || undefined, team1: betForm.team1 || undefined, team2: betForm.team2 || undefined, market: betForm.market || undefined,
@@ -339,15 +372,18 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
             <option value="ALL">Todos Resultados</option><option value="OPEN">Em aberto</option><option value="SETTLED">Resolvidas</option>
             {RESULT_OPTIONS.filter(o => o.value !== 'TBD').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <select value={filterHouse} onChange={e => { setFilterHouse(e.target.value); setPage(1); }} className={selClass}><option value="ALL">Todas Casas</option>{distinctPlacement('house').map(h => <option key={h} value={h}>{h}</option>)}</select>
-          <select value={filterProvider} onChange={e => { setFilterProvider(e.target.value); setPage(1); }} className={selClass}><option value="ALL">Todos Provedores</option>{distinctPlacement('provider').map(p => <option key={p} value={p}>{p}</option>)}</select>
+          <select value={filterHouse} onChange={e => onChangeFilterHouse(e.target.value)} className={selClass}><option value="ALL">Todas Casas</option>{distinctPlacement('house').map(h => <option key={h} value={h}>{h}</option>)}</select>
+          <select value={filterProvider} onChange={e => { setFilterProvider(e.target.value); setPage(1); }} className={selClass}><option value="ALL">Todos Provedores</option>{Array.from(new Set([...distinctPlacement('provider'), ...Object.values(houseProviders)].filter(Boolean))).sort().map(p => <option key={p} value={p}>{p}</option>)}</select>
           <select value={filterMarket} onChange={e => { setFilterMarket(e.target.value); setPage(1); }} className={selClass}><option value="ALL">Todos Mercados</option>{distinctBet('market').map(m => <option key={m} value={m}>{m}</option>)}</select>
         </div>
         <div className="flex flex-wrap gap-3 items-center">
           <label className="text-[11px] text-slate-500 uppercase font-bold">De</label>
-          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }} className={selClass} />
+          <input type="date" value={dateFrom} max={dateTo || undefined} onChange={e => { setDateFrom(e.target.value); setPage(1); }} className={`${selClass} [color-scheme:dark] cursor-pointer`} />
           <label className="text-[11px] text-slate-500 uppercase font-bold">Até</label>
-          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} className={selClass} />
+          <input type="date" value={dateTo} min={dateFrom || undefined} onChange={e => { setDateTo(e.target.value); setPage(1); }} className={`${selClass} [color-scheme:dark] cursor-pointer`} />
+          {(dateFrom || dateTo !== todayISO()) && (
+            <button onClick={() => { setDateFrom(''); setDateTo(todayISO()); setPage(1); }} className="text-[11px] text-slate-400 hover:text-white underline">limpar datas</button>
+          )}
           <div className="relative ml-auto">
             <ArrowDownUp size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <select value={sortBy} onChange={e => setSortBy(e.target.value as SortKey)} className={`${selClass} pl-9`}>
@@ -370,6 +406,18 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
         </div>
       </div>
 
+      {/* Barra de seleção em massa */}
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 bg-indigo-600/10 border border-indigo-500/30 rounded-xl px-4 py-2.5">
+          <span className="text-sm text-indigo-200 font-semibold">{selectedIds.size} selecionada(s)</span>
+          {selectedIds.size < sorted.length && (
+            <button onClick={selectAllFiltered} className="text-xs text-indigo-300 hover:text-white underline">Selecionar todas ({sorted.length})</button>
+          )}
+          <button onClick={clearSelection} className="text-xs text-slate-400 hover:text-white underline">Limpar seleção</button>
+          <button onClick={deleteSelected} className="ml-auto flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"><Trash2 size={14} /> Excluir selecionadas</button>
+        </div>
+      )}
+
       {/* Tabela */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
         {renderBets.length === 0 ? (
@@ -383,6 +431,7 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
             <table className="w-full text-sm">
               <thead className="text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-800 bg-slate-950/50">
                 <tr>
+                  <th className="px-3 py-2.5 w-8"><input type="checkbox" checked={pageAllSelected} onChange={toggleSelectPage} className="accent-indigo-500 w-4 h-4 align-middle cursor-pointer" title="Selecionar todas desta página" /></th>
                   {vis('date') && <th className="text-left font-semibold px-4 py-2.5">Data</th>}
                   {vis('time') && <th className="text-left font-semibold px-2 py-2.5">Hora</th>}
                   {vis('tipster') && <th className="text-left font-semibold px-3 py-2.5">Tipster</th>}
@@ -405,7 +454,8 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
                   const c = computeBet(b);
                   const multi = placementsOf(b).length > 1;
                   return (
-                    <tr key={b.id} onClick={() => setDetailBet(b)} className="hover:bg-slate-800/30 transition-colors cursor-pointer">
+                    <tr key={b.id} onClick={() => setDetailBet(b)} className={`hover:bg-slate-800/30 transition-colors cursor-pointer ${selectedIds.has(b.id) ? 'bg-indigo-600/10' : ''}`}>
+                      <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(b.id)} onChange={() => toggleSelect(b.id)} className="accent-indigo-500 w-4 h-4 cursor-pointer" /></td>
                       {vis('date') && <td className="px-4 py-2.5 text-slate-300 whitespace-nowrap font-mono text-xs">{fmtDate(b.date)}</td>}
                       {vis('time') && <td className="px-2 py-2.5 text-slate-400 whitespace-nowrap font-mono text-xs">{b.time || '—'}</td>}
                       {vis('tipster') && <td className="px-3 py-2.5 text-slate-200 whitespace-nowrap">{b.tipster}</td>}
@@ -472,9 +522,9 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={cumData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 10 }} hide={cumData.length > 25} />
-                <YAxis tick={{ fill: '#64748b', fontSize: 10 }} />
-                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} formatter={(v: any) => chartUnit === 'BRL' ? fmtBRL(v) : `${fmtNum(v)}u`} />
+                <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} hide={cumData.length > 25} />
+                <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} itemStyle={{ color: '#e2e8f0' }} cursor={{ stroke: '#475569' }} formatter={(v: any) => chartUnit === 'BRL' ? fmtBRL(v) : `${fmtNum(v)}u`} />
                 <Line type="monotone" dataKey="v" stroke="#6366f1" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
@@ -484,9 +534,9 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={barData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="key" tick={{ fill: '#64748b', fontSize: 10 }} hide={barData.length > 20} />
-                <YAxis tick={{ fill: '#64748b', fontSize: 10 }} />
-                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} formatter={(v: any) => chartUnit === 'BRL' ? fmtBRL(v) : `${fmtNum(v)}u`} />
+                <XAxis dataKey="key" tick={{ fill: '#94a3b8', fontSize: 10 }} hide={barData.length > 20} />
+                <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} itemStyle={{ color: '#e2e8f0' }} cursor={{ fill: 'rgba(148,163,184,0.08)' }} formatter={(v: any) => chartUnit === 'BRL' ? fmtBRL(v) : `${fmtNum(v)}u`} />
                 <Bar dataKey="v">{barData.map((d, i) => <Cell key={i} fill={d.v >= 0 ? '#10b981' : '#ef4444'} />)}</Bar>
               </BarChart>
             </ResponsiveContainer>

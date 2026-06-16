@@ -3,7 +3,7 @@ import { Account, Holder, Bank } from '../types';
 import { fmtBRL } from '../finance';
 import {
   Wallet, Landmark, Clock, PiggyBank, Search, Filter, Ban, RefreshCw, Building2,
-  Contact, ArrowDownUp, Plus, Pencil, Trash2, X, Save, TrendingUp
+  Contact, ArrowDownUp, Plus, Pencil, Trash2, X, Save, TrendingUp, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown
 } from 'lucide-react';
 import { SaldosImport } from './SaldosImport'; // TEMP: importador do Sheets — remover na versão final
 
@@ -124,6 +124,10 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
   const [sortBy, setSortBy] = useState<SortKey>('BALANCE_DESC');
   const [groupBy, setGroupBy] = useState<'HOUSE' | 'HOLDER'>('HOUSE');
   const [bankModal, setBankModal] = useState<Partial<Bank> | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Chave única por grupo (inclui o modo de agrupamento p/ não colidir Casa×Titular)
+  const groupId = (key: string) => `${groupBy}:${key}`;
+  const toggleGroup = (key: string) => setCollapsed(prev => { const n = new Set(prev); const id = groupId(key); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const holderName = (a: Account) =>
     a.owner || holders.find(h => h.id === a.holderId)?.name || '—';
@@ -254,6 +258,13 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
         <div className="flex items-center gap-2">
           {/* TEMP: importador do Sheets — remover na versão final (apague só esta linha) */}
           <SaldosImport accounts={accounts} banks={banks} holders={holders} onSaveAccount={onSaveAccount} onSaveBank={onSaveBank} />
+          <button
+            onClick={() => { const allCollapsed = groups.length > 0 && groups.every(g => collapsed.has(groupId(g.key))); setCollapsed(allCollapsed ? new Set() : new Set(groups.map(g => groupId(g.key)))); }}
+            title="Expandir / minimizar todos"
+            className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+          >
+            {groups.length > 0 && groups.every(g => collapsed.has(groupId(g.key))) ? <><ChevronsUpDown size={14} /> Expandir tudo</> : <><ChevronsDownUp size={14} /> Minimizar tudo</>}
+          </button>
           <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
             <button
               onClick={() => setGroupBy('HOUSE')}
@@ -410,10 +421,13 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
         </div>
       ) : (
         <div className="space-y-5">
-          {groups.map(group => (
+          {groups.map(group => {
+            const isCollapsed = collapsed.has(groupId(group.key));
+            return (
             <div key={group.key} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-800 bg-slate-950/50">
+              <button onClick={() => toggleGroup(group.key)} className={`w-full flex items-center justify-between gap-3 px-5 py-3 ${isCollapsed ? '' : 'border-b border-slate-800'} bg-slate-950/50 hover:bg-slate-900/80 transition-colors text-left`}>
                 <div className="flex items-center gap-2 min-w-0">
+                  {isCollapsed ? <ChevronRight size={16} className="text-slate-500 shrink-0" /> : <ChevronDown size={16} className="text-slate-500 shrink-0" />}
                   {groupBy === 'HOUSE' ? (
                     <span className={`px-2 py-1 rounded text-[10px] uppercase tracking-wide border font-bold ${getHouseStyles(group.key)}`}>
                       {group.key}
@@ -431,8 +445,9 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
                     <p className="text-[10px] text-amber-400 font-mono">pendente {fmtBRL(group.pendente)}</p>
                   )}
                 </div>
-              </div>
+              </button>
 
+              {!isCollapsed && (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-800/70">
@@ -497,8 +512,10 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
                   </tbody>
                 </table>
               </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

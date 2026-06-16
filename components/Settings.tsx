@@ -7,6 +7,7 @@ import { collection, addDoc, deleteDoc, doc, query, where, getDocs, updateDoc } 
 interface SettingsProps {
   houses: string[];
   rawHouses: { id: string; name: string; order: number; provider?: string; hidden?: boolean }[];
+  providers: { id: string; name: string }[];
   accounts: { house: string }[];
   tasks: { house: string }[];
   setHouses: (houses: string[]) => void;
@@ -28,6 +29,7 @@ interface SettingsProps {
 export const Settings: React.FC<SettingsProps> = ({
   houses,
   rawHouses,
+  providers,
   accounts,
   tasks,
   onReorderHouses,
@@ -40,7 +42,7 @@ export const Settings: React.FC<SettingsProps> = ({
   onClearDatabase
 }) => {
   const [newHouse, setNewHouse] = useState('');
-  const [providerDrafts, setProviderDrafts] = useState<Record<string, string>>({});
+  const [newProvider, setNewProvider] = useState('');
   const [newTypeLabel, setNewTypeLabel] = useState('');
   
   // Pix Form
@@ -90,6 +92,28 @@ export const Settings: React.FC<SettingsProps> = ({
   const saveProvider = async (id: string, name: string, value: string) => {
     await updateDoc(doc(db, 'config_houses', id), { provider: value.trim() });
     logAction('Configuração: Casas', `Provedor de ${name}: ${value.trim() || '—'}`);
+  };
+
+  // --- Provedores (cadastro) ---
+  const handleAddProvider = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newProvider.trim();
+    if (!name) return;
+    if (providers.some(p => p.name.toLowerCase() === name.toLowerCase())) { alert('Esse provedor já existe.'); setNewProvider(''); return; }
+    await addDoc(collection(db, 'config_providers'), { name, createdAt: new Date().toISOString() });
+    logAction('Configuração: Provedores', `Adicionou o provedor: ${name}`);
+    setNewProvider('');
+  };
+
+  const handleRemoveProvider = async (id: string, name: string) => {
+    const usedBy = rawHouses.filter(h => (h.provider || '') === name).map(h => h.name);
+    if (usedBy.length > 0 && !confirm(`O provedor "${name}" está vinculado a: ${usedBy.join(', ')}. Remover assim mesmo? As casas ficarão sem provedor.`)) return;
+    await deleteDoc(doc(db, 'config_providers', id));
+    // Desvincula das casas que usavam esse provedor
+    for (const h of rawHouses.filter(h => (h.provider || '') === name)) {
+      await updateDoc(doc(db, 'config_houses', h.id), { provider: '' });
+    }
+    logAction('Configuração: Provedores', `Removeu o provedor: ${name}`);
   };
 
   const toggleHidden = async (h: { id: string; name: string; hidden?: boolean }) => {
@@ -346,15 +370,17 @@ export const Settings: React.FC<SettingsProps> = ({
                   {h.name}
                   {h.hidden && <span className="ml-2 text-[10px] text-slate-500 uppercase">oculta</span>}
                 </span>
-                <input
-                  type="text"
-                  value={providerDrafts[h.id] ?? (h.provider || '')}
-                  onChange={(e) => setProviderDrafts(prev => ({ ...prev, [h.id]: e.target.value }))}
-                  onBlur={(e) => { if (e.target.value.trim() !== (h.provider || '')) saveProvider(h.id, h.name, e.target.value); }}
-                  placeholder="Provedor..."
+                <select
+                  value={h.provider || ''}
+                  onChange={(e) => saveProvider(h.id, h.name, e.target.value)}
                   title="Provedor desta casa"
-                  className="w-28 bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs text-white focus:ring-1 focus:ring-indigo-500 outline-none shrink-0"
-                />
+                  className="w-32 bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs text-white focus:ring-1 focus:ring-indigo-500 outline-none shrink-0"
+                >
+                  <option value="">— provedor —</option>
+                  {/* Mantém o provedor atual visível mesmo se ainda não estiver cadastrado */}
+                  {h.provider && !providers.some(p => p.name === h.provider) && <option value={h.provider}>{h.provider} (não cadastrado)</option>}
+                  {providers.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
                 <button
                   onClick={() => toggleHidden(h)}
                   disabled={!h.hidden && inUse}
@@ -367,6 +393,49 @@ export const Settings: React.FC<SettingsProps> = ({
                   <Trash2 size={16} />
                 </button>
               </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Providers Configuration */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <div className="flex justify-between items-start mb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <span className="w-1.5 h-6 bg-amber-500 rounded-full"></span>
+                Provedores
+              </h3>
+              <span className="text-[10px] text-slate-500 max-w-[160px] text-right">Cadastre aqui e selecione o provedor de cada casa ao lado</span>
+          </div>
+
+          <form onSubmit={handleAddProvider} className="flex gap-2 mb-6">
+            <input
+              type="text"
+              value={newProvider}
+              onChange={(e) => setNewProvider(e.target.value)}
+              placeholder="Nome do Provedor..."
+              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+            />
+            <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-lg">
+              <Plus size={20} />
+            </button>
+          </form>
+
+          <div className="space-y-2 max-h-[340px] overflow-y-auto pr-2">
+            {providers.length === 0 ? (
+              <p className="text-center text-slate-500 text-sm py-6 italic">Nenhum provedor cadastrado.</p>
+            ) : providers.map(p => {
+              const count = rawHouses.filter(h => (h.provider || '') === p.name).length;
+              return (
+                <div key={p.id} className="flex items-center justify-between bg-slate-950/50 border border-slate-800 p-3 rounded-lg group">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-slate-300 truncate">{p.name}</span>
+                    {count > 0 && <span className="text-[10px] text-slate-500 shrink-0">· {count} casa(s)</span>}
+                  </div>
+                  <button onClick={() => handleRemoveProvider(p.id, p.name)} className="text-slate-600 hover:text-red-400 p-1.5 shrink-0">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               );
             })}
           </div>

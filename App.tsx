@@ -42,6 +42,7 @@ const App: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [houses, setHouses] = useState<string[]>([]); // Initialize empty, fill from DB
   const [rawHouses, setRawHouses] = useState<{id: string, name: string, order: number, provider?: string, hidden?: boolean}[]>([]); // Keep track of IDs for sorting
+  const [providers, setProviders] = useState<{id: string, name: string}[]>([]); // Provedores cadastrados (config_providers)
   const [pixKeys, setPixKeys] = useState<PixKey[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [tipsters, setTipsters] = useState<Tipster[]>([]);
@@ -178,6 +179,12 @@ const App: React.FC = () => {
         }
     }, handleError('config_houses'));
 
+    const unsubProviders = onSnapshot(collection(db, 'config_providers'), (snapshot) => {
+        const raw = snapshot.docs.map(d => ({ id: d.id, name: d.data().name as string }));
+        raw.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        setProviders(raw);
+    }, handleError('config_providers'));
+
     const unsubTypes = onSnapshot(collection(db, 'config_types'), (snapshot) => {
         if (!snapshot.empty) {
              const raw = snapshot.docs.map(d => ({
@@ -193,7 +200,7 @@ const App: React.FC = () => {
     }, handleError('config_types'));
 
     return () => {
-      unsubTasks(); unsubAccounts(); unsubLogs(); unsubPacks(); unsubPix(); unsubUsers(); unsubHouses(); unsubTypes(); unsubHolders(); unsubTransactions(); unsubBanks(); unsubTipsters(); unsubBets();
+      unsubTasks(); unsubAccounts(); unsubLogs(); unsubPacks(); unsubPix(); unsubUsers(); unsubHouses(); unsubProviders(); unsubTypes(); unsubHolders(); unsubTransactions(); unsubBanks(); unsubTipsters(); unsubBets();
     };
   }, [currentUser]);
 
@@ -911,6 +918,18 @@ const App: React.FC = () => {
     } catch (e: any) { alert(`Erro ao excluir aposta: ${e.message}`); }
   };
 
+  const handleDeleteManyBets = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    try {
+      // Firestore aceita até 500 operações por batch; dividimos em blocos por segurança.
+      for (let i = 0; i < ids.length; i += 400) {
+        const batch = writeBatch(db);
+        ids.slice(i, i + 400).forEach(id => batch.delete(doc(db, 'bets', id)));
+        await batch.commit();
+      }
+    } catch (e: any) { console.error(e); alert(`Erro ao excluir apostas: ${e.message}`); }
+  };
+
   // --- Danger Zone / Database Clearing (CHUNKED DELETE) ---
   const handleClearOperationalData = async (): Promise<number> => {
      // Function to delete entire collections in batches of 100
@@ -1164,6 +1183,7 @@ const App: React.FC = () => {
           <Settings
             houses={houses}
             rawHouses={rawHouses}
+            providers={providers}
             accounts={accounts}
             tasks={tasks}
             setHouses={setHousesHandler}
@@ -1223,6 +1243,7 @@ const App: React.FC = () => {
             houseProviders={houseProviders}
             onSaveBet={handleSaveBet}
             onDeleteBet={handleDeleteBet}
+            onDeleteManyBets={handleDeleteManyBets}
             onSaveTipster={handleSaveTipster}
             onDeleteTipster={handleDeleteTipster}
           />
