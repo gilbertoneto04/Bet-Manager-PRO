@@ -5,6 +5,7 @@ import {
   Dices, Plus, Pencil, Trash2, X, Save, Search, Filter, TrendingUp, Target,
   Users, BarChart3, Wallet, Clock, ArrowDownUp
 } from 'lucide-react';
+import { BetsImport } from './BetsImport'; // TEMP: importador do Sheets — remover na versão final
 
 interface BetsProps {
   bets: Bet[];
@@ -228,6 +229,8 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, availableHouses, onS
           <p className="text-slate-400 text-sm mt-1">{kpis.total} apostas · {kpis.settled} resolvidas · {kpis.openCount} em aberto</p>
         </div>
         <div className="flex gap-2">
+          {/* TEMP: importador do Sheets — remover na versão final (apague só esta linha) */}
+          <BetsImport bets={bets} tipsters={tipsters} onSaveBet={onSaveBet} onSaveTipster={onSaveTipster} />
           <button onClick={() => setShowTipsters(true)} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium transition-colors">
             <Users size={16} /> Tipsters
           </button>
