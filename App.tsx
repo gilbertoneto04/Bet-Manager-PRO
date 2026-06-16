@@ -10,6 +10,7 @@ import { PackList } from './components/PackList';
 import { HolderList } from './components/HolderList';
 import { Balances } from './components/Balances';
 import { Bets } from './components/Bets';
+import { Results } from './components/Results';
 import { Login } from './components/Login';
 import { Task, LogEntry, TaskStatus, TabView, TaskType, Account, Pack, User, PixKey, Holder, Transaction, Bank, Tipster, Bet } from './types';
 import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, MOCK_HOUSES, INITIAL_DEPOSIT_DESCRIPTION } from './constants';
@@ -930,6 +931,31 @@ const App: React.FC = () => {
     } catch (e: any) { console.error(e); alert(`Erro ao excluir apostas: ${e.message}`); }
   };
 
+  // Remove undefined recursivamente (Firestore rejeita undefined, inclusive dentro de arrays como placements).
+  const deepClean = (v: any): any => {
+    if (Array.isArray(v)) return v.map(deepClean);
+    if (v && typeof v === 'object') {
+      const o: any = {};
+      Object.keys(v).forEach(k => { if (v[k] !== undefined) o[k] = deepClean(v[k]); });
+      return o;
+    }
+    return v;
+  };
+
+  // Edição em massa: cada item traz só os campos a alterar; o resto da aposta fica intacto.
+  const handleUpdateManyBets = async (updates: { id: string; data: Partial<Bet> }[]) => {
+    if (updates.length === 0) return;
+    try {
+      const now = new Date().toISOString();
+      for (let i = 0; i < updates.length; i += 400) {
+        const batch = writeBatch(db);
+        updates.slice(i, i + 400).forEach(({ id, data }) => batch.update(doc(db, 'bets', id), deepClean({ ...data, updatedAt: now })));
+        await batch.commit();
+      }
+      addLog(undefined, 'Apostas', `Edição em massa: ${updates.length} aposta(s) atualizada(s)`);
+    } catch (e: any) { console.error(e); alert(`Erro ao editar apostas em massa: ${e.message}`); }
+  };
+
   // --- Danger Zone / Database Clearing (CHUNKED DELETE) ---
   const handleClearOperationalData = async (): Promise<number> => {
      // Function to delete entire collections in batches of 100
@@ -999,6 +1025,29 @@ const App: React.FC = () => {
               alert("Erro ao restaurar: " + e.message);
           }
       }
+  };
+
+  // Sincroniza casas/provedores que aparecem nos dados (contas/apostas) mas não estão nas Configurações.
+  const handleSyncConfigFromData = async (): Promise<{ houses: number; providers: number }> => {
+    const houseNames = new Set(rawHouses.map(h => (h.name || '').toLowerCase()));
+    const providerNames = new Set(providers.map(p => (p.name || '').toLowerCase()));
+    const foundHouses = new Map<string, string>();
+    const foundProviders = new Map<string, string>();
+    const addH = (n?: string) => { const s = (n || '').trim(); if (s) foundHouses.set(s.toLowerCase(), s); };
+    const addP = (n?: string) => { const s = (n || '').trim(); if (s) foundProviders.set(s.toLowerCase(), s); };
+    accounts.forEach(a => addH(a.house));
+    rawHouses.forEach(h => addP(h.provider));
+    bets.forEach(b => { addH(b.house); addP(b.provider); (b.placements || []).forEach(p => { addH(p.house); addP(p.provider); }); });
+    const missingHouses = Array.from(foundHouses).filter(([k]) => !houseNames.has(k)).map(([, v]) => v);
+    const missingProviders = Array.from(foundProviders).filter(([k]) => !providerNames.has(k)).map(([, v]) => v);
+    if (missingHouses.length === 0 && missingProviders.length === 0) return { houses: 0, providers: 0 };
+    const batch = writeBatch(db);
+    let order = rawHouses.length;
+    missingHouses.forEach(name => { const ref = doc(collection(db, 'config_houses')); batch.set(ref, { name, order: order++, createdAt: new Date().toISOString() }); });
+    missingProviders.forEach(name => { const ref = doc(collection(db, 'config_providers')); batch.set(ref, { name, createdAt: new Date().toISOString() }); });
+    await batch.commit();
+    addLog(undefined, 'Configurações', `Sincronizou ${missingHouses.length} casa(s) e ${missingProviders.length} provedor(es) a partir dos dados`);
+    return { houses: missingHouses.length, providers: missingProviders.length };
   };
 
   const handleReorderHouses = async (newOrder: string[]) => {
@@ -1199,6 +1248,7 @@ const App: React.FC = () => {
             onUpdateUserRole={handleUpdateUserRole}
             logAction={handleSettingsLog}
             onReset={handleRestoreDefaults}
+            onSyncConfig={handleSyncConfigFromData}
             onClearDatabase={handleClearOperationalData}
           />
       )}
@@ -1244,8 +1294,16 @@ const App: React.FC = () => {
             onSaveBet={handleSaveBet}
             onDeleteBet={handleDeleteBet}
             onDeleteManyBets={handleDeleteManyBets}
+            onUpdateManyBets={handleUpdateManyBets}
             onSaveTipster={handleSaveTipster}
             onDeleteTipster={handleDeleteTipster}
+          />
+      )}
+      {activeTab === 'RESULTS' && (
+          <Results
+            bets={bets}
+            tipsters={tipsters}
+            houseProviders={houseProviders}
           />
       )}
     </Layout>

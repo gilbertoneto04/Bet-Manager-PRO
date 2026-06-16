@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2, Plus, RotateCcw, Landmark, User, Shield, ShieldCheck, GripVertical, AlertTriangle, X, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Trash2, Plus, RotateCcw, Landmark, User, Shield, ShieldCheck, GripVertical, AlertTriangle, X, CheckCircle2, AlertCircle, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { PixKey, User as UserType } from '../types';
 import { db } from '../firebase';
 import { collection, addDoc, deleteDoc, doc, query, where, getDocs, updateDoc } from 'firebase/firestore';
@@ -22,6 +22,7 @@ interface SettingsProps {
   onUpdateUser: (user: UserType) => void;
   onUpdateUserRole: (userId: string, newRole: 'ADMIN' | 'USER' | 'AGENCIA' | 'KFB') => void;
   onReset?: () => void;
+  onSyncConfig?: () => Promise<{ houses: number; providers: number }>;
   logAction: (description: string, action: string) => void;
   onClearDatabase?: () => Promise<number>;
 }
@@ -38,9 +39,21 @@ export const Settings: React.FC<SettingsProps> = ({
   pixKeys,
   currentUser, users, onUpdateUser, onUpdateUserRole,
   onReset,
+  onSyncConfig,
   logAction,
   onClearDatabase
 }) => {
+  const [syncing, setSyncing] = useState(false);
+  const handleSync = async () => {
+    if (!onSyncConfig) return;
+    setSyncing(true);
+    try {
+      const r = await onSyncConfig();
+      if (r.houses === 0 && r.providers === 0) alert('Tudo já está sincronizado — nenhuma casa/provedor novo encontrado nos dados.');
+      else alert(`Sincronizado: ${r.houses} casa(s) e ${r.providers} provedor(es) adicionados às configurações.`);
+    } catch (e: any) { alert(`Erro ao sincronizar: ${e.message}`); }
+    finally { setSyncing(false); }
+  };
   const [newHouse, setNewHouse] = useState('');
   const [newProvider, setNewProvider] = useState('');
   const [newTypeLabel, setNewTypeLabel] = useState('');
@@ -269,15 +282,28 @@ export const Settings: React.FC<SettingsProps> = ({
            <h2 className="text-2xl font-bold text-white mb-2">Configurações</h2>
            <p className="text-slate-400">Gerencie as opções disponíveis no sistema.</p>
         </div>
-        {onReset && (
-            <button 
-                onClick={onReset}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-700 hover:border-slate-500 transition-all text-sm w-full md:w-auto justify-center"
-            >
-                <RotateCcw size={16} />
-                Restaurar Padrões
-            </button>
-        )}
+        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+          {onSyncConfig && (
+              <button
+                  onClick={handleSync}
+                  disabled={syncing}
+                  title="Adiciona às configurações as casas/provedores que aparecem nas contas e apostas mas ainda não estão cadastrados"
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-700 hover:border-slate-500 transition-all text-sm justify-center disabled:opacity-50"
+              >
+                  <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
+                  {syncing ? 'Sincronizando...' : 'Sincronizar casas/provedores'}
+              </button>
+          )}
+          {onReset && (
+              <button
+                  onClick={onReset}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-700 hover:border-slate-500 transition-all text-sm justify-center"
+              >
+                  <RotateCcw size={16} />
+                  Restaurar Padrões
+              </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

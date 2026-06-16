@@ -2,13 +2,15 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Bet, BetPlacement, Tipster, BetResult, Account } from '../types';
 import { computeBet, fmtBRL, placementsOf } from '../finance';
 import {
-  Dices, Plus, Pencil, Trash2, X, Save, Search, Filter, TrendingUp,
-  Users, BarChart3, ArrowDownUp, Columns3, Lock, Unlock, CheckCircle2, Hourglass
+  Dices, Plus, Pencil, Trash2, X, Save, Search, Filter,
+  Users, ArrowDownUp, Columns3, Lock, Unlock, CheckCircle2, Hourglass, SlidersHorizontal
 } from 'lucide-react';
-import {
-  ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell
-} from 'recharts';
 import { BetsImport } from './BetsImport'; // TEMP: importador do Sheets — remover na versão final
+import {
+  num, round2, round6, fmtNum, fmtU, fmtDate, todayISO, genId,
+  ResultFilter, RESULT_OPTIONS, RESULT_LABEL, resultBadgeClass,
+  BetFilters, betMatches, buildKpis, summarize,
+} from './betsLib';
 
 interface BetsProps {
   bets: Bet[];
@@ -19,52 +21,13 @@ interface BetsProps {
   onSaveBet: (bet: Bet) => void;
   onDeleteBet: (id: string) => void;
   onDeleteManyBets: (ids: string[]) => void;
+  onUpdateManyBets: (updates: { id: string; data: Partial<Bet> }[]) => void;
   onSaveTipster: (t: Tipster) => void;
   onDeleteTipster: (id: string) => void;
 }
 
-const RESULT_OPTIONS: { value: BetResult; label: string }[] = [
-  { value: 'TBD', label: 'Em aberto' }, { value: 'W', label: 'Green' }, { value: 'L', label: 'Red' },
-  { value: 'R', label: 'Void' }, { value: 'HW', label: '½ Green' }, { value: 'HL', label: '½ Red' }, { value: 'CASHED', label: 'Cashout' },
-];
-const RESULT_LABEL: Record<BetResult, string> = RESULT_OPTIONS.reduce((a, o) => { a[o.value] = o.label; return a; }, {} as Record<BetResult, string>);
-const resultBadgeClass = (r: BetResult) => {
-  switch (r) {
-    case 'W': case 'HW': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-    case 'L': case 'HL': return 'bg-red-500/10 text-red-400 border-red-500/20';
-    case 'CASHED': return 'bg-sky-500/10 text-sky-400 border-sky-500/20';
-    case 'R': return 'bg-slate-600/20 text-slate-300 border-slate-600/30';
-    default: return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-  }
-};
-
-const num = (v: any) => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? 0 : n; };
-const round2 = (v: number) => Math.round(v * 100) / 100;
-// Stake em unidades guardado com mais casas para preservar centavos (R$ = unidades * valor da unidade).
-// Ex.: unidade=1000 e R$ 1164,96 ⇒ 1.16496u (round2 perderia os centavos).
-const round6 = (v: number) => Math.round(v * 1e6) / 1e6;
-const fmtNum = (v: number) => round2(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtU = (v: number) => `${v >= 0 ? '+' : ''}${fmtNum(v)}u`;
-const fmtDate = (d?: string) => {
-  if (!d) return '—';
-  const iso = d.length > 10 ? d.slice(0, 10) : d;
-  const [y, m, day] = iso.split('-');
-  return (day && m && y) ? `${day}/${m}/${y}` : d;
-};
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const genId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `p_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
-
-type ResultFilter = 'ALL' | 'OPEN' | 'SETTLED' | BetResult;
 type SortKey = 'DATE_DESC' | 'DATE_ASC' | 'PL_DESC' | 'PL_ASC';
-type Dimension = 'date' | 'prelive' | 'tipster' | 'titular' | 'house' | 'sport' | 'market' | 'provider';
 type PageSize = 10 | 25 | 50 | 100 | 'ALL';
-
-const DIMENSIONS: { value: Dimension; label: string }[] = [
-  { value: 'date', label: 'Data' }, { value: 'prelive', label: 'Pré/Live' }, { value: 'tipster', label: 'Tipster' },
-  { value: 'titular', label: 'Titular' }, { value: 'house', label: 'Casa' }, { value: 'sport', label: 'Esporte' },
-  { value: 'market', label: 'Mercado' }, { value: 'provider', label: 'Provedor' },
-];
-const PLACEMENT_DIMS: Dimension[] = ['titular', 'house', 'provider'];
 
 const COLUMNS: { key: string; label: string }[] = [
   { key: 'date', label: 'Data' }, { key: 'time', label: 'Hora' }, { key: 'tipster', label: 'Tipster' },
@@ -74,45 +37,32 @@ const COLUMNS: { key: string; label: string }[] = [
 ];
 const DEFAULT_COLS = ['date', 'time', 'tipster', 'event', 'selection', 'market', 'titular', 'house', 'stake', 'odd', 'result', 'pl'];
 
-const dimKey = (b: Bet, dim: Dimension): string => {
-  if (dim === 'date') return b.date || '—';
-  if (dim === 'prelive') return b.moment === 'LIVE' ? 'Live' : b.moment === 'PRE' ? 'Pré' : '—';
-  if (dim === 'tipster') return b.tipster || '—';
-  if (dim === 'sport') return b.sport || '—';
-  if (dim === 'market') return b.market || '—';
-  return '—';
-};
-const placementField = (dim: Dimension): 'house' | 'owner' | 'provider' => dim === 'titular' ? 'owner' : dim === 'provider' ? 'provider' : 'house';
-const summarize = (b: Bet, field: 'house' | 'owner' | 'provider') => {
-  const vals = Array.from(new Set(placementsOf(b).map(p => p[field]).filter(Boolean))) as string[];
-  if (vals.length === 0) return '—';
-  return vals.length === 1 ? vals[0] : `${vals[0]} +${vals.length - 1}`;
-};
-
 type PlacementForm = { accountId?: string; house?: string; owner?: string; provider?: string; stakeUnits?: number; stakeReais?: number; odds?: number };
+type BulkForm = { fields: Set<string>; date?: string; tipster?: string; result: BetResult; sport?: string; market?: string; moment?: 'PRE' | 'LIVE'; house?: string; provider?: string; titular?: string };
 type BetForm = {
   id?: string; date?: string; time?: string; tipster?: string; unitValue?: number; result?: BetResult; cashoutValue?: number;
   sport?: string; team1?: string; team2?: string; market?: string; selection?: string; moment?: 'PRE' | 'LIVE'; fairOdds?: number; note?: string;
   createdAt?: string; placements: PlacementForm[];
 };
 
-export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableHouses, houseProviders, onSaveBet, onDeleteBet, onDeleteManyBets, onSaveTipster, onDeleteTipster }) => {
+export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, houseProviders, onSaveBet, onDeleteBet, onDeleteManyBets, onUpdateManyBets, onSaveTipster, onDeleteTipster }) => {
   const [search, setSearch] = useState('');
   const [filterTipster, setFilterTipster] = useState('ALL');
   const [filterResult, setFilterResult] = useState<ResultFilter>('ALL');
   const [filterHouse, setFilterHouse] = useState('ALL');
   const [filterProvider, setFilterProvider] = useState('ALL');
+  const [filterTitular, setFilterTitular] = useState('ALL');
   const [filterMarket, setFilterMarket] = useState('ALL');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState(todayISO());
   const [sortBy, setSortBy] = useState<SortKey>('DATE_DESC');
   const [pageSize, setPageSize] = useState<PageSize>(25);
   const [page, setPage] = useState(1);
-  const [dimension, setDimension] = useState<Dimension>('date');
   const [visibleCols, setVisibleCols] = useState<Set<string>>(new Set(DEFAULT_COLS));
   const [showCols, setShowCols] = useState(false);
-  const [chartUnit, setChartUnit] = useState<'BRL' | 'U'>('BRL');
   const [betForm, setBetForm] = useState<BetForm | null>(null);
+  const [bulkForm, setBulkForm] = useState<BulkForm | null>(null);
+  const [showLimitedAcc, setShowLimitedAcc] = useState(false);
   const [unitLocked, setUnitLocked] = useState(true);
   const [detailBet, setDetailBet] = useState<Bet | null>(null);
   const [showTipsters, setShowTipsters] = useState(false);
@@ -121,54 +71,34 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setBetForm(null); setShowTipsters(false); setDetailBet(null); setShowCols(false); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setBetForm(null); setBulkForm(null); setShowTipsters(false); setDetailBet(null); setShowCols(false); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   const vis = (k: string) => visibleCols.has(k);
-  // Ao escolher a casa no filtro, já assume o provedor configurado dela (se houver).
+  // Ao escolher a casa no filtro, assume o provedor configurado dela; se a casa não tem provedor, volta para "Todos".
   const onChangeFilterHouse = (house: string) => {
     setFilterHouse(house); setPage(1);
-    if (house !== 'ALL' && houseProviders[house]) setFilterProvider(houseProviders[house]);
-    else if (house === 'ALL') setFilterProvider('ALL');
+    setFilterProvider(house !== 'ALL' && houseProviders[house] ? houseProviders[house] : 'ALL');
   };
+  // Abre o calendário nativo assim que o usuário clica/foca no campo de data.
+  const openPicker = (e: React.SyntheticEvent<HTMLInputElement>) => { try { (e.currentTarget as any).showPicker?.(); } catch {} };
   const tipsterUnit = (name: string) => tipsters.find(t => t.name === name)?.unitValue || 0;
   const activeAccounts = useMemo(() => accounts.filter(a => a.status !== 'DELETED'), [accounts]);
+  // Casas "em uso" = têm conta ativa (opcionalmente incluindo limitadas).
+  const inUseHouses = useMemo(() => Array.from(new Set(
+    accounts.filter(a => a.status === 'ACTIVE' || (showLimitedAcc && a.status === 'LIMITED')).map(a => a.house)
+  )).sort(), [accounts, showLimitedAcc]);
+  const accountsForHouse = (house?: string) => accounts.filter(a => a.house === house && (a.status === 'ACTIVE' || (showLimitedAcc && a.status === 'LIMITED')));
   const distinctBet = (key: keyof Bet) => Array.from(new Set(bets.map(b => (b[key] as string) || '').filter(Boolean))).sort();
-  const distinctPlacement = (field: 'house' | 'provider') => Array.from(new Set(bets.flatMap(b => placementsOf(b).map(p => p[field] || '')).filter(Boolean))).sort();
+  const distinctPlacement = (field: 'house' | 'provider' | 'owner') => Array.from(new Set(bets.flatMap(b => placementsOf(b).map(p => p[field] || '')).filter(Boolean))).sort();
 
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return bets.filter(b => {
-      if (filterTipster !== 'ALL' && b.tipster !== filterTipster) return false;
-      if (filterHouse !== 'ALL' && !placementsOf(b).some(p => (p.house || '') === filterHouse)) return false;
-      if (filterProvider !== 'ALL' && !placementsOf(b).some(p => (p.provider || '') === filterProvider)) return false;
-      if (filterMarket !== 'ALL' && (b.market || '') !== filterMarket) return false;
-      if (filterResult === 'OPEN' && b.result !== 'TBD') return false;
-      if (filterResult === 'SETTLED' && b.result === 'TBD') return false;
-      if (filterResult !== 'ALL' && filterResult !== 'OPEN' && filterResult !== 'SETTLED' && b.result !== filterResult) return false;
-      const d = (b.date || '').slice(0, 10);
-      if (dateFrom && d < dateFrom) return false;
-      if (dateTo && d > dateTo) return false;
-      if (term) {
-        const hay = [b.tipster, b.team1, b.team2, b.selection, b.market, b.sport, ...placementsOf(b).flatMap(p => [p.house, p.owner, p.provider])].join(' ').toLowerCase();
-        if (!hay.includes(term)) return false;
-      }
-      return true;
-    });
-  }, [bets, search, filterTipster, filterResult, filterHouse, filterProvider, filterMarket, dateFrom, dateTo]);
+  const filters: BetFilters = { search, tipster: filterTipster, result: filterResult, house: filterHouse, provider: filterProvider, market: filterMarket, titular: filterTitular, dateFrom, dateTo };
+  const filtered = useMemo(() => bets.filter(b => betMatches(b, filters)), [bets, search, filterTipster, filterResult, filterHouse, filterProvider, filterMarket, filterTitular, dateFrom, dateTo]);
 
-  // KPIs, resumo e gráficos respeitam os filtros ativos (data, mercado, casa, etc.).
-  const kpis = useMemo(() => {
-    let invested = 0, profit = 0, plUnits = 0, settled = 0, openCount = 0, openStake = 0;
-    filtered.forEach(b => {
-      const c = computeBet(b);
-      if (c.pending) { openCount++; openStake += c.stake; }
-      else { settled++; invested += c.stake; profit += c.pl; plUnits += c.plUnits; }
-    });
-    return { invested, profit, plUnits, settled, openCount, openStake, total: filtered.length, roi: invested > 0 ? profit / invested : 0 };
-  }, [filtered]);
+  // KPIs refletem os filtros da aba Apostas.
+  const kpis = useMemo(() => buildKpis(filtered), [filtered]);
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     switch (sortBy) {
@@ -184,7 +114,7 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
   const safePage = Math.min(page, totalPages);
   const pageSlice = useMemo(() => sorted.slice((safePage - 1) * size, safePage * size), [sorted, safePage, size]);
 
-  const filterSig = [search, filterTipster, filterResult, filterHouse, filterProvider, filterMarket, dateFrom, dateTo, sortBy, String(pageSize), String(safePage)].join('|');
+  const filterSig = [search, filterTipster, filterResult, filterHouse, filterProvider, filterTitular, filterMarket, dateFrom, dateTo, sortBy, String(pageSize), String(safePage)].join('|');
   const betIdsSig = useMemo(() => bets.map(b => b.id).sort().join(','), [bets]);
   useEffect(() => { setDisplayIds(pageSlice.map(b => b.id)); /* eslint-disable-next-line */ }, [filterSig, betIdsSig]);
 
@@ -212,32 +142,39 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
   // Mantém a seleção limpa de ids que sumiram (ex.: após exclusão).
   useEffect(() => { setSelectedIds(prev => { const n = new Set(Array.from(prev).filter(id => byId.has(id))); return n.size === prev.size ? prev : n; }); }, [byId]);
 
-  const summary = useMemo(() => {
-    const map = new Map<string, { count: number; stake: number; pl: number; plUnits: number }>();
-    const add = (key: string, c: { stake: number; pl: number; plUnits: number }) => {
-      const cur = map.get(key) || { count: 0, stake: 0, pl: 0, plUnits: 0 };
-      cur.count++; cur.stake += c.stake; cur.pl += c.pl; cur.plUnits += c.plUnits; map.set(key, cur);
-    };
-    filtered.forEach(b => {
-      const c = computeBet(b);
-      if (c.pending) return;
-      if (PLACEMENT_DIMS.includes(dimension)) {
-        const field = placementField(dimension);
-        const ps = placementsOf(b);
-        if (b.result === 'CASHED') { add((ps[0]?.[field] as string) || '—', c); }
-        else ps.forEach(p => add((p[field] as string) || '—', computeBet({ result: b.result, placements: [p] })));
-      } else add(dimKey(b, dimension), c);
+  // ---- edição em massa ----
+  const openBulkEdit = () => setBulkForm({ fields: new Set(), result: 'TBD', moment: 'PRE' });
+  const toggleBulkField = (f: string) => setBulkForm(prev => prev ? (() => { const n = new Set(prev.fields); n.has(f) ? n.delete(f) : n.add(f); return { ...prev, fields: n }; })() : prev);
+  const applyBulkEdit = () => {
+    if (!bulkForm) return;
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const { fields } = bulkForm;
+    if (fields.size === 0) { alert('Marque ao menos um campo para alterar.'); return; }
+    if (!confirm(`Aplicar alterações em ${ids.length} aposta(s)? Só os campos marcados serão alterados; o resto permanece igual.`)) return;
+    const touchesPlacement = fields.has('house') || fields.has('provider') || fields.has('titular');
+    const updates = ids.map(id => {
+      const b = byId.get(id)!;
+      const data: Partial<Bet> = {};
+      if (fields.has('date') && bulkForm.date) data.date = bulkForm.date;
+      if (fields.has('tipster') && bulkForm.tipster) data.tipster = bulkForm.tipster;
+      if (fields.has('result')) data.result = bulkForm.result;
+      if (fields.has('sport')) data.sport = bulkForm.sport || undefined;
+      if (fields.has('market')) data.market = bulkForm.market || undefined;
+      if (fields.has('moment')) data.moment = bulkForm.moment;
+      if (touchesPlacement) {
+        let ps = placementsOf(b).map(p => ({ ...p }));
+        if (fields.has('house')) { ps = ps.map(p => ({ ...p, house: bulkForm.house || undefined })); data.house = bulkForm.house || undefined; }
+        if (fields.has('provider')) { ps = ps.map(p => ({ ...p, provider: bulkForm.provider || undefined })); data.provider = bulkForm.provider || undefined; }
+        if (fields.has('titular')) { ps = ps.map(p => ({ ...p, owner: bulkForm.titular || undefined })); data.owner = bulkForm.titular || undefined; }
+        data.placements = ps;
+      }
+      return { id, data };
     });
-    const arr = Array.from(map.entries()).map(([key, v]) => ({ key, ...v, roi: v.stake > 0 ? v.pl / v.stake : 0 }));
-    return dimension === 'date' ? arr.sort((a, b) => a.key.localeCompare(b.key)) : arr.sort((a, b) => b.pl - a.pl);
-  }, [filtered, dimension]);
-
-  const cumData = useMemo(() => {
-    const settled = filtered.filter(b => !computeBet(b).pending).sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
-    let cum = 0, cumU = 0;
-    return settled.map((b, i) => { const c = computeBet(b); cum += c.pl; cumU += c.plUnits; return { i, label: fmtDate(b.date), v: round2(chartUnit === 'BRL' ? cum : cumU) }; });
-  }, [filtered, chartUnit]);
-  const barData = useMemo(() => summary.map(s => ({ key: dimension === 'date' ? fmtDate(s.key) : s.key, v: round2(chartUnit === 'BRL' ? s.pl : s.plUnits) })), [summary, chartUnit, dimension]);
+    onUpdateManyBets(updates);
+    setBulkForm(null);
+    clearSelection();
+  };
 
   // ---- form ----
   const recomputeReais = (placements: PlacementForm[], unit: number) => placements.map(p => ({ ...p, stakeReais: round2((p.stakeUnits || 0) * unit) }));
@@ -264,6 +201,8 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
     const acc = activeAccounts.find(a => a.id === accountId);
     patchPlacement(idx, acc ? { accountId, house: acc.house, owner: acc.owner || acc.name, provider: houseProviders[acc.house] || '' } : { accountId: undefined });
   };
+  // Escolher a casa primeiro filtra as contas dela; limpa a conta selecionada e já assume o provedor.
+  const setPHouse = (idx: number, house: string) => patchPlacement(idx, { house: house || undefined, accountId: undefined, owner: undefined, provider: houseProviders[house] || '' });
   const addPlacement = () => setBetForm(f => f ? { ...f, placements: [...f.placements, { stakeUnits: 0, stakeReais: 0, odds: 0 }] } : f);
   const removePlacement = (idx: number) => setBetForm(f => f ? { ...f, placements: f.placements.length > 1 ? f.placements.filter((_, i) => i !== idx) : f.placements } : f);
 
@@ -374,13 +313,14 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
           </select>
           <select value={filterHouse} onChange={e => onChangeFilterHouse(e.target.value)} className={selClass}><option value="ALL">Todas Casas</option>{distinctPlacement('house').map(h => <option key={h} value={h}>{h}</option>)}</select>
           <select value={filterProvider} onChange={e => { setFilterProvider(e.target.value); setPage(1); }} className={selClass}><option value="ALL">Todos Provedores</option>{Array.from(new Set([...distinctPlacement('provider'), ...Object.values(houseProviders)].filter(Boolean))).sort().map(p => <option key={p} value={p}>{p}</option>)}</select>
+          <select value={filterTitular} onChange={e => { setFilterTitular(e.target.value); setPage(1); }} className={selClass}><option value="ALL">Todos Titulares</option>{distinctPlacement('owner').map(o => <option key={o} value={o}>{o}</option>)}</select>
           <select value={filterMarket} onChange={e => { setFilterMarket(e.target.value); setPage(1); }} className={selClass}><option value="ALL">Todos Mercados</option>{distinctBet('market').map(m => <option key={m} value={m}>{m}</option>)}</select>
         </div>
         <div className="flex flex-wrap gap-3 items-center">
           <label className="text-[11px] text-slate-500 uppercase font-bold">De</label>
-          <input type="date" value={dateFrom} max={dateTo || undefined} onChange={e => { setDateFrom(e.target.value); setPage(1); }} className={`${selClass} [color-scheme:dark] cursor-pointer`} />
+          <input type="date" value={dateFrom} max={dateTo || undefined} onFocus={openPicker} onClick={openPicker} onChange={e => { setDateFrom(e.target.value); setPage(1); }} className={`${selClass} [color-scheme:dark] cursor-pointer`} />
           <label className="text-[11px] text-slate-500 uppercase font-bold">Até</label>
-          <input type="date" value={dateTo} min={dateFrom || undefined} onChange={e => { setDateTo(e.target.value); setPage(1); }} className={`${selClass} [color-scheme:dark] cursor-pointer`} />
+          <input type="date" value={dateTo} min={dateFrom || undefined} onFocus={openPicker} onClick={openPicker} onChange={e => { setDateTo(e.target.value); setPage(1); }} className={`${selClass} [color-scheme:dark] cursor-pointer`} />
           {(dateFrom || dateTo !== todayISO()) && (
             <button onClick={() => { setDateFrom(''); setDateTo(todayISO()); setPage(1); }} className="text-[11px] text-slate-400 hover:text-white underline">limpar datas</button>
           )}
@@ -414,7 +354,10 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
             <button onClick={selectAllFiltered} className="text-xs text-indigo-300 hover:text-white underline">Selecionar todas ({sorted.length})</button>
           )}
           <button onClick={clearSelection} className="text-xs text-slate-400 hover:text-white underline">Limpar seleção</button>
-          <button onClick={deleteSelected} className="ml-auto flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"><Trash2 size={14} /> Excluir selecionadas</button>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={openBulkEdit} className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"><SlidersHorizontal size={14} /> Editar selecionadas</button>
+            <button onClick={deleteSelected} className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"><Trash2 size={14} /> Excluir selecionadas</button>
+          </div>
         </div>
       )}
 
@@ -507,73 +450,7 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
         </div>
       </div>
 
-      {/* Gráficos */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2"><BarChart3 size={16} className="text-indigo-400" /> Gráficos</h3>
-          <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-1">
-            <button onClick={() => setChartUnit('BRL')} className={`px-3 py-1 rounded-md text-xs font-medium ${chartUnit === 'BRL' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>Valores (R$)</button>
-            <button onClick={() => setChartUnit('U')} className={`px-3 py-1 rounded-md text-xs font-medium ${chartUnit === 'U' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>Unidades</button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div>
-            <p className="text-[11px] text-slate-500 mb-1 uppercase tracking-wide">P/L acumulado</p>
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={cumData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} hide={cumData.length > 25} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} itemStyle={{ color: '#e2e8f0' }} cursor={{ stroke: '#475569' }} formatter={(v: any) => chartUnit === 'BRL' ? fmtBRL(v) : `${fmtNum(v)}u`} />
-                <Line type="monotone" dataKey="v" stroke="#6366f1" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          <div>
-            <p className="text-[11px] text-slate-500 mb-1 uppercase tracking-wide">P/L por {DIMENSIONS.find(d => d.value === dimension)?.label}</p>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={barData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="key" tick={{ fill: '#94a3b8', fontSize: 10 }} hide={barData.length > 20} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} itemStyle={{ color: '#e2e8f0' }} cursor={{ fill: 'rgba(148,163,184,0.08)' }} formatter={(v: any) => chartUnit === 'BRL' ? fmtBRL(v) : `${fmtNum(v)}u`} />
-                <Bar dataKey="v">{barData.map((d, i) => <Cell key={i} fill={d.v >= 0 ? '#10b981' : '#ef4444'} />)}</Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      {/* Resumo por dimensão */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-800 bg-slate-950/50">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2"><TrendingUp size={16} className="text-indigo-400" /> Resumo por</h3>
-          <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-1 flex-wrap">
-            {DIMENSIONS.map(d => <button key={d.value} onClick={() => setDimension(d.value)} className={`px-3 py-1 rounded-md text-xs font-medium ${dimension === d.value ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>{d.label}</button>)}
-          </div>
-        </div>
-        {summary.length === 0 ? <div className="px-5 py-10 text-center text-slate-500 text-sm">Sem apostas resolvidas para resumir ainda.</div> : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-800/70">
-                <tr><th className="text-left font-semibold px-5 py-2">{DIMENSIONS.find(d => d.value === dimension)?.label}</th><th className="text-right font-semibold px-3 py-2">Apostas</th><th className="text-right font-semibold px-3 py-2">Investido</th><th className="text-right font-semibold px-3 py-2">P/L</th><th className="text-right font-semibold px-3 py-2">P/L (u)</th><th className="text-right font-semibold px-5 py-2">ROI</th></tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/70">
-                {summary.map(s => (
-                  <tr key={s.key} className="hover:bg-slate-800/20">
-                    <td className="px-5 py-2.5 text-slate-200 font-medium whitespace-nowrap">{dimension === 'date' ? fmtDate(s.key) : s.key}</td>
-                    <td className="px-3 py-2.5 text-right text-slate-400 font-mono">{s.count}</td>
-                    <td className="px-3 py-2.5 text-right text-slate-300 font-mono">{fmtBRL(s.stake)}</td>
-                    <td className={`px-3 py-2.5 text-right font-mono font-bold ${s.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBRL(s.pl)}</td>
-                    <td className={`px-3 py-2.5 text-right font-mono ${s.plUnits >= 0 ? 'text-emerald-500/80' : 'text-red-500/80'}`}>{fmtU(s.plUnits)}</td>
-                    <td className={`px-5 py-2.5 text-right font-mono ${s.roi >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{(s.roi * 100).toFixed(1)}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {/* Gráficos e resumo agora ficam na aba Resultados (filtros independentes). */}
 
       {/* ===== Card de detalhes ===== */}
       {detailBet && detailCalc && (
@@ -641,7 +518,7 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
             </div>
             <div className="p-5 space-y-4 max-h-[72vh] overflow-y-auto">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div><label className={labelClass}>Data</label><input type="date" value={(betForm.date || '').slice(0, 10)} onChange={e => setBetForm({ ...betForm, date: e.target.value })} className={inputClass} /></div>
+                <div><label className={labelClass}>Data</label><input type="date" value={(betForm.date || '').slice(0, 10)} onFocus={openPicker} onClick={openPicker} onChange={e => setBetForm({ ...betForm, date: e.target.value })} className={`${inputClass} [color-scheme:dark]`} /></div>
                 <div><label className={labelClass}>Horário</label><input type="time" value={betForm.time || ''} onChange={e => setBetForm({ ...betForm, time: e.target.value })} className={inputClass} /></div>
                 <div><label className={labelClass}>Tipster *</label>
                   <select value={betForm.tipster || ''} onChange={e => setFormTipster(e.target.value)} className={inputClass}><option value="">Selecione...</option>{tipsters.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}</select>
@@ -656,32 +533,39 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
 
               {/* Entradas (multi casa/odd) */}
               <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="text-xs font-semibold text-slate-300">Entradas — mesma aposta em uma ou mais casas</span>
-                  <button type="button" onClick={addPlacement} className="flex items-center gap-1 text-xs text-indigo-300 hover:text-indigo-200"><Plus size={13} /> Entrada</button>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer"><input type="checkbox" checked={showLimitedAcc} onChange={e => setShowLimitedAcc(e.target.checked)} className="accent-indigo-500" /> incluir limitadas</label>
+                    <button type="button" onClick={addPlacement} className="flex items-center gap-1 text-xs text-indigo-300 hover:text-indigo-200"><Plus size={13} /> Entrada</button>
+                  </div>
                 </div>
                 <div className="hidden md:grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wide text-slate-500 px-1">
-                  <span className="col-span-4">Conta / Casa</span><span className="col-span-2">Stake (u)</span><span className="col-span-2">Stake (R$)</span><span className="col-span-2">Odd</span><span className="col-span-2"></span>
+                  <span className="col-span-3">Casa</span><span className="col-span-3">Conta</span><span className="col-span-2">Stake (u)</span><span className="col-span-2">Stake (R$)</span><span className="col-span-1">Odd</span><span className="col-span-1"></span>
                 </div>
-                {betForm.placements.map((p, idx) => (
+                {betForm.placements.map((p, idx) => {
+                  const accs = accountsForHouse(p.house);
+                  const houseOpts = Array.from(new Set([...inUseHouses, ...(p.house ? [p.house] : [])])).sort();
+                  return (
                   <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                    <div className="col-span-12 md:col-span-4 flex gap-1">
-                      <select value={p.accountId || ''} onChange={e => pickAccount(idx, e.target.value)} className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
-                        <option value="">— conta —</option>
-                        {activeAccounts.map(a => <option key={a.id} value={a.id}>{a.house} · {a.owner || a.name}</option>)}
-                      </select>
-                      <input list="dl-phouse" type="text" value={p.house || ''} onChange={e => patchPlacement(idx, { house: e.target.value })} placeholder="Casa" className="w-20 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none" />
-                    </div>
+                    <select value={p.house || ''} onChange={e => setPHouse(idx, e.target.value)} className="col-span-6 md:col-span-3 min-w-0 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none">
+                      <option value="">— casa —</option>
+                      {houseOpts.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                    <select value={p.accountId || ''} onChange={e => pickAccount(idx, e.target.value)} disabled={!p.house} className="col-span-6 md:col-span-3 min-w-0 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white outline-none disabled:opacity-50" title={!p.house ? 'Escolha a casa primeiro' : ''}>
+                      <option value="">{p.house ? (accs.length ? '— conta —' : 'sem contas') : '— conta —'}</option>
+                      {accs.map(a => <option key={a.id} value={a.id}>{(a.owner || a.name)}{a.status === 'LIMITED' ? ' (limitada)' : ''}</option>)}
+                    </select>
                     <input type="number" step="0.01" value={p.stakeUnits ?? 0} onChange={e => setPUnits(idx, num(e.target.value))} className="col-span-4 md:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-right font-mono outline-none" />
                     <input type="number" step="0.01" value={p.stakeReais ?? 0} onChange={e => setPReais(idx, num(e.target.value))} className="col-span-4 md:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-right font-mono outline-none" />
-                    <input type="number" step="0.01" value={p.odds ?? 0} onChange={e => patchPlacement(idx, { odds: num(e.target.value) })} className="col-span-3 md:col-span-2 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-right font-mono outline-none" />
-                    <button type="button" onClick={() => removePlacement(idx)} disabled={betForm.placements.length <= 1} className="col-span-1 md:col-span-2 text-slate-500 hover:text-red-400 disabled:opacity-30 flex justify-center"><Trash2 size={14} /></button>
+                    <input type="number" step="0.01" value={p.odds ?? 0} onChange={e => patchPlacement(idx, { odds: num(e.target.value) })} className="col-span-3 md:col-span-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white text-right font-mono outline-none" />
+                    <button type="button" onClick={() => removePlacement(idx)} disabled={betForm.placements.length <= 1} className="col-span-1 md:col-span-1 text-slate-500 hover:text-red-400 disabled:opacity-30 flex justify-center"><Trash2 size={14} /></button>
                   </div>
-                ))}
+                  );
+                })}
                 <div className="text-right text-xs text-slate-400 pt-1 border-t border-slate-700/50">
                   Investido: <span className="text-slate-200 font-mono">{fmtBRL(formTotals.stake)}</span> · {fmtNum(formTotals.units)}u · Odd média: <span className="text-slate-200 font-mono">{formTotals.avgOdds.toFixed(2)}</span>
                 </div>
-                <datalist id="dl-phouse">{Array.from(new Set([...availableHouses, ...distinctPlacement('house')])).map(v => <option key={v} value={v} />)}</datalist>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -701,6 +585,48 @@ export const Bets: React.FC<BetsProps> = ({ bets, tipsters, accounts, availableH
             <div className="p-5 border-t border-slate-800 flex gap-3">
               <button onClick={saveBet} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"><Save size={18} /> Salvar Aposta</button>
               <button onClick={() => setBetForm(null)} className="px-6 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Modal Edição em massa ===== */}
+      {bulkForm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto" onClick={() => setBulkForm(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl shadow-2xl my-8" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-slate-800">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2"><SlidersHorizontal size={18} className="text-indigo-400" /> Editar {selectedIds.size} aposta(s)</h3>
+              <button onClick={() => setBulkForm(null)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-lg"><X size={20} /></button>
+            </div>
+            <div className="p-5 space-y-2 max-h-[70vh] overflow-y-auto">
+              <p className="text-xs text-slate-400 mb-2">Marque <span className="text-slate-200">apenas</span> os campos que quer alterar. Os demais dados de cada aposta permanecem como estão.</p>
+              {(() => {
+                const f = bulkForm;
+                const on = (k: string) => f.fields.has(k);
+                const rowCls = (k: string) => `flex items-center gap-3 rounded-lg px-3 py-2 border ${on(k) ? 'border-indigo-500/40 bg-indigo-500/5' : 'border-slate-800 bg-slate-950/40'}`;
+                const chk = (k: string) => <input type="checkbox" checked={on(k)} onChange={() => toggleBulkField(k)} className="accent-indigo-500 w-4 h-4 shrink-0" />;
+                const lbl = 'w-24 text-xs text-slate-300 shrink-0';
+                const fld = 'flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white outline-none disabled:opacity-40';
+                const providerOpts = Array.from(new Set([...distinctPlacement('provider'), ...Object.values(houseProviders)].filter(Boolean))).sort();
+                return (
+                  <>
+                    <label className={rowCls('date')}>{chk('date')}<span className={lbl}>Data</span><input type="date" disabled={!on('date')} value={f.date || ''} onFocus={openPicker} onClick={openPicker} onChange={e => setBulkForm({ ...f, date: e.target.value })} className={`${fld} [color-scheme:dark]`} /></label>
+                    <label className={rowCls('tipster')}>{chk('tipster')}<span className={lbl}>Tipster</span><select disabled={!on('tipster')} value={f.tipster || ''} onChange={e => setBulkForm({ ...f, tipster: e.target.value })} className={fld}><option value="">Selecione...</option>{tipsters.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}</select></label>
+                    <label className={rowCls('result')}>{chk('result')}<span className={lbl}>Resultado</span><select disabled={!on('result')} value={f.result} onChange={e => setBulkForm({ ...f, result: e.target.value as BetResult })} className={fld}>{RESULT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
+                    <label className={rowCls('market')}>{chk('market')}<span className={lbl}>Mercado</span><input type="text" disabled={!on('market')} list="dl-bulk-market" value={f.market || ''} onChange={e => setBulkForm({ ...f, market: e.target.value })} className={fld} /><datalist id="dl-bulk-market">{distinctBet('market').map(v => <option key={v} value={v} />)}</datalist></label>
+                    <label className={rowCls('sport')}>{chk('sport')}<span className={lbl}>Esporte</span><input type="text" disabled={!on('sport')} list="dl-bulk-sport" value={f.sport || ''} onChange={e => setBulkForm({ ...f, sport: e.target.value })} className={fld} /><datalist id="dl-bulk-sport">{distinctBet('sport').map(v => <option key={v} value={v} />)}</datalist></label>
+                    <label className={rowCls('moment')}>{chk('moment')}<span className={lbl}>Momento</span><select disabled={!on('moment')} value={f.moment || 'PRE'} onChange={e => setBulkForm({ ...f, moment: e.target.value as 'PRE' | 'LIVE' })} className={fld}><option value="PRE">Pré</option><option value="LIVE">Live</option></select></label>
+                    <label className={rowCls('house')}>{chk('house')}<span className={lbl}>Casa</span><input type="text" disabled={!on('house')} list="dl-bulk-house" value={f.house || ''} onChange={e => setBulkForm({ ...f, house: e.target.value })} className={fld} /><datalist id="dl-bulk-house">{distinctPlacement('house').map(v => <option key={v} value={v} />)}</datalist></label>
+                    <label className={rowCls('provider')}>{chk('provider')}<span className={lbl}>Provedor</span><input type="text" disabled={!on('provider')} list="dl-bulk-provider" value={f.provider || ''} onChange={e => setBulkForm({ ...f, provider: e.target.value })} className={fld} /><datalist id="dl-bulk-provider">{providerOpts.map(v => <option key={v} value={v} />)}</datalist></label>
+                    <label className={rowCls('titular')}>{chk('titular')}<span className={lbl}>Titular</span><input type="text" disabled={!on('titular')} list="dl-bulk-titular" value={f.titular || ''} onChange={e => setBulkForm({ ...f, titular: e.target.value })} className={fld} /><datalist id="dl-bulk-titular">{distinctPlacement('owner').map(v => <option key={v} value={v} />)}</datalist></label>
+                    <p className="text-[11px] text-slate-500 pt-1">Casa, Provedor e Titular são aplicados a todas as entradas de cada aposta selecionada.</p>
+                  </>
+                );
+              })()}
+            </div>
+            <div className="p-5 border-t border-slate-800 flex gap-3">
+              <button onClick={applyBulkEdit} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2"><Save size={18} /> Aplicar a {selectedIds.size} aposta(s)</button>
+              <button onClick={() => setBulkForm(null)} className="px-6 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl">Cancelar</button>
             </div>
           </div>
         </div>

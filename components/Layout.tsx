@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, PlusCircle, History, Menu, X, Users, Ban, Settings, BarChart3, Package, RefreshCw, LogOut, Trash2, Contact, Wallet, Dices } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, History, Menu, X, Users, Ban, Settings, BarChart3, Package, RefreshCw, LogOut, Trash2, Contact, Wallet, Dices, LineChart } from 'lucide-react';
 import { TabView, User } from '../types';
 
 interface LayoutProps {
@@ -70,6 +70,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
               </div>
               <NavItem tab="BALANCES" icon={Wallet} label="Saldos" />
               <NavItem tab="BETS" icon={Dices} label="Apostas" />
+              <NavItem tab="RESULTS" icon={LineChart} label="Resultados" />
               <NavItem tab="HOLDERS" icon={Contact} label="Titulares" />
               <NavItem tab="PACKS" icon={Package} label="Packs de Contas" />
               <NavItem tab="ACCOUNTS_ACTIVE" icon={Users} label="Contas em Uso" />
