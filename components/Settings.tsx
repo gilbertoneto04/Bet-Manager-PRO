@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { Trash2, Plus, RotateCcw, Landmark, User, Shield, ShieldCheck, GripVertical, AlertTriangle, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Trash2, Plus, RotateCcw, Landmark, User, Shield, ShieldCheck, GripVertical, AlertTriangle, X, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { PixKey, User as UserType } from '../types';
 import { db } from '../firebase';
-import { collection, addDoc, deleteDoc, doc, query, where, getDocs } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, query, where, getDocs, updateDoc } from 'firebase/firestore';
 
 interface SettingsProps {
   houses: string[];
+  rawHouses: { id: string; name: string; order: number; provider?: string; hidden?: boolean }[];
+  accounts: { house: string }[];
+  tasks: { house: string }[];
   setHouses: (houses: string[]) => void;
   onReorderHouses?: (newHouses: string[]) => void;
   taskTypes: { id?: string, label: string; value: string, order?: number }[];
@@ -22,9 +25,11 @@ interface SettingsProps {
   onClearDatabase?: () => Promise<number>;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ 
-  houses, 
-
+export const Settings: React.FC<SettingsProps> = ({
+  houses,
+  rawHouses,
+  accounts,
+  tasks,
   onReorderHouses,
   taskTypes, 
   onReorderTypes,
@@ -35,6 +40,7 @@ export const Settings: React.FC<SettingsProps> = ({
   onClearDatabase
 }) => {
   const [newHouse, setNewHouse] = useState('');
+  const [providerDrafts, setProviderDrafts] = useState<Record<string, string>>({});
   const [newTypeLabel, setNewTypeLabel] = useState('');
   
   // Pix Form
@@ -78,6 +84,23 @@ export const Settings: React.FC<SettingsProps> = ({
     logAction('Configuração: Casas', `Removeu a casa: ${houseName}`);
   };
 
+  // Uma casa só pode ser ocultada se não houver conta/pendência usando ela
+  const houseInUse = (name: string) => accounts.some(a => a.house === name) || tasks.some(t => t.house === name);
+
+  const saveProvider = async (id: string, name: string, value: string) => {
+    await updateDoc(doc(db, 'config_houses', id), { provider: value.trim() });
+    logAction('Configuração: Casas', `Provedor de ${name}: ${value.trim() || '—'}`);
+  };
+
+  const toggleHidden = async (h: { id: string; name: string; hidden?: boolean }) => {
+    if (!h.hidden && houseInUse(h.name)) {
+      alert(`Não dá para ocultar "${h.name}": há contas ou pendências cadastradas nessa casa.`);
+      return;
+    }
+    await updateDoc(doc(db, 'config_houses', h.id), { hidden: !h.hidden });
+    logAction('Configuração: Casas', `${h.hidden ? 'Exibiu' : 'Ocultou'} a casa: ${h.name}`);
+  };
+
   const handleHouseDragStart = (e: React.DragEvent, index: number) => {
       setDraggedHouseIndex(index);
       e.dataTransfer.effectAllowed = "move";
@@ -90,13 +113,13 @@ export const Settings: React.FC<SettingsProps> = ({
   const handleHouseDrop = (e: React.DragEvent, targetIndex: number) => {
       e.preventDefault();
       if (draggedHouseIndex === null || draggedHouseIndex === targetIndex) return;
-      
-      const newHouses = [...houses];
-      const [draggedItem] = newHouses.splice(draggedHouseIndex, 1);
-      newHouses.splice(targetIndex, 0, draggedItem);
-      
+
+      const order = rawHouses.map(r => r.name);
+      const [draggedItem] = order.splice(draggedHouseIndex, 1);
+      order.splice(targetIndex, 0, draggedItem);
+
       if (onReorderHouses) {
-          onReorderHouses(newHouses);
+          onReorderHouses(order);
       }
       setDraggedHouseIndex(null);
   };
@@ -290,7 +313,7 @@ export const Settings: React.FC<SettingsProps> = ({
                 <span className="w-1.5 h-6 bg-emerald-500 rounded-full"></span>
                 Casas de Aposta 
               </h3>
-              <span className="text-[10px] text-slate-500 max-w-[120px] text-right">Arraste para reordenar a lista globalmente</span>
+              <span className="text-[10px] text-slate-500 max-w-[150px] text-right">Arraste p/ reordenar · defina o provedor · 👁 oculta dos selects</span>
           </div>
           
           <form onSubmit={handleAddHouse} className="flex gap-2 mb-6">
@@ -306,28 +329,46 @@ export const Settings: React.FC<SettingsProps> = ({
             </button>
           </form>
 
-          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
-            {houses.map((house, idx) => (
-              <div 
-                key={house} 
+          <div className="space-y-2 max-h-[340px] overflow-y-auto pr-2">
+            {rawHouses.map((h, idx) => {
+              const inUse = houseInUse(h.name);
+              return (
+              <div
+                key={h.id}
                 draggable
                 onDragStart={(e) => handleHouseDragStart(e, idx)}
                 onDragOver={handleHouseDragOver}
                 onDrop={(e) => handleHouseDrop(e, idx)}
-                className={`flex items-center justify-between bg-slate-950/50 border border-slate-800 p-3 rounded-lg group cursor-move touch-none ${draggedHouseIndex === idx ? 'opacity-50 ring-2 ring-indigo-500' : ''}`}
+                className={`flex items-center gap-2 bg-slate-950/50 border border-slate-800 p-2.5 rounded-lg group cursor-move touch-none ${draggedHouseIndex === idx ? 'opacity-50 ring-2 ring-indigo-500' : ''} ${h.hidden ? 'opacity-60' : ''}`}
               >
-                <div className="flex items-center gap-2">
-                    <GripVertical size={16} className="text-slate-600" />
-                    <span className="text-slate-300">{house}</span>
-                </div>
-                <button 
-                  onClick={() => handleRemoveHouse(house)}
-                  className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                <GripVertical size={16} className="text-slate-600 shrink-0" />
+                <span className="text-slate-300 flex-1 min-w-0 truncate">
+                  {h.name}
+                  {h.hidden && <span className="ml-2 text-[10px] text-slate-500 uppercase">oculta</span>}
+                </span>
+                <input
+                  type="text"
+                  value={providerDrafts[h.id] ?? (h.provider || '')}
+                  onChange={(e) => setProviderDrafts(prev => ({ ...prev, [h.id]: e.target.value }))}
+                  onBlur={(e) => { if (e.target.value.trim() !== (h.provider || '')) saveProvider(h.id, h.name, e.target.value); }}
+                  placeholder="Provedor..."
+                  title="Provedor desta casa"
+                  className="w-28 bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs text-white focus:ring-1 focus:ring-indigo-500 outline-none shrink-0"
+                />
+                <button
+                  onClick={() => toggleHidden(h)}
+                  disabled={!h.hidden && inUse}
+                  title={h.hidden ? 'Exibir nos selects' : inUse ? 'Não pode ocultar: há contas/pendências nesta casa' : 'Ocultar dos selects'}
+                  className={`p-1.5 rounded-lg transition-colors shrink-0 ${!h.hidden && inUse ? 'text-slate-700 cursor-not-allowed' : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-800'}`}
                 >
-                  <Trash2 size={18} />
+                  {h.hidden ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+                <button onClick={() => handleRemoveHouse(h.name)} className="text-slate-600 hover:text-red-400 p-1.5 shrink-0">
+                  <Trash2 size={16} />
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

@@ -41,7 +41,7 @@ const App: React.FC = () => {
   const [holders, setHolders] = useState<Holder[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [houses, setHouses] = useState<string[]>([]); // Initialize empty, fill from DB
-  const [rawHouses, setRawHouses] = useState<{id: string, name: string, order: number}[]>([]); // Keep track of IDs for sorting
+  const [rawHouses, setRawHouses] = useState<{id: string, name: string, order: number, provider?: string, hidden?: boolean}[]>([]); // Keep track of IDs for sorting
   const [pixKeys, setPixKeys] = useState<PixKey[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [tipsters, setTipsters] = useState<Tipster[]>([]);
@@ -160,15 +160,17 @@ const App: React.FC = () => {
     
     const unsubHouses = onSnapshot(collection(db, 'config_houses'), (snapshot) => {
         if (!snapshot.empty) {
-            const raw = snapshot.docs.map(d => ({ 
-                id: d.id, 
-                name: d.data().name, 
-                order: d.data().order || 0 
+            const raw = snapshot.docs.map(d => ({
+                id: d.id,
+                name: d.data().name,
+                order: d.data().order || 0,
+                provider: d.data().provider || '',
+                hidden: d.data().hidden || false
             }));
             // Sort by order
             raw.sort((a, b) => a.order - b.order);
             setRawHouses(raw);
-            setHouses(raw.map(r => r.name));
+            setHouses(raw.filter(r => !r.hidden).map(r => r.name)); // selects exibem só casas visíveis
         } else {
              // If empty, we wait for user to click Restore Defaults
              setHouses([]);
@@ -1025,6 +1027,9 @@ const App: React.FC = () => {
       return <Login onLogin={setCurrentUser} />;
   }
 
+  const houseProviders: Record<string, string> = {};
+  rawHouses.forEach(r => { if (r.provider) houseProviders[r.name] = r.provider; });
+
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={currentUser} onLogout={handleLogout}>
       {activeTab === 'DASHBOARD' && (
@@ -1156,8 +1161,11 @@ const App: React.FC = () => {
           />
       )}
       {activeTab === 'SETTINGS' && currentUser?.role !== 'AGENCIA' && (
-          <Settings 
-            houses={houses} 
+          <Settings
+            houses={houses}
+            rawHouses={rawHouses}
+            accounts={accounts}
+            tasks={tasks}
             setHouses={setHousesHandler}
             onReorderHouses={handleReorderHouses}
             taskTypes={taskTypes} 
