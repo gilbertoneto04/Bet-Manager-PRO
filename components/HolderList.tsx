@@ -82,18 +82,20 @@ export const HolderList: React.FC<HolderListProps> = ({
 
     const totalPaid = accs.reduce((s, a) => s + (a.paidValue || 0), 0);
     const totalDeposited = global.deposited; // soma de todos os depósitos (inclui o inicial)
-    const saldoPresente = accs.reduce((s, a) => s + (a.currentBalance || 0), 0);
     const pendente = accs.reduce((s, a) => s + (a.pendingBalance || 0), 0);
-    const plPresente = saldoPresente - totalDeposited; // P/L = saldo presente − total depositado
+    // Saldo presente inclui o saldo pendente nas casas.
+    const saldoPresente = accs.reduce((s, a) => s + (a.currentBalance || 0) + (a.pendingBalance || 0), 0);
+    const plPresente = saldoPresente - totalDeposited; // P/L = (saldo + pendente) − total depositado
 
-    // Saldo presente e P/L por casa
+    // Saldo presente e P/L por casa (saldo já inclui o pendente)
     const houses = new Set<string>([...accs.map(a => a.house), ...txs.map(t => t.house)]);
     const perHouse = Array.from(houses).map(house => {
       const hAccs = accs.filter(a => a.house === house);
       const hTxs = txs.filter(t => t.house === house);
-      const saldo = hAccs.reduce((s, a) => s + (a.currentBalance || 0), 0);
+      const saldo = hAccs.reduce((s, a) => s + (a.currentBalance || 0) + (a.pendingBalance || 0), 0);
+      const pend = hAccs.reduce((s, a) => s + (a.pendingBalance || 0), 0);
       const deposited = summarize(hTxs).deposited;
-      return { house, saldo, deposited, pl: saldo - deposited };
+      return { house, saldo, pend, deposited, pl: saldo - deposited };
     }).sort((a, b) => b.saldo - a.saldo);
 
     return { accs, txs, global, totalPaid, totalDeposited, saldoPresente, pendente, plPresente, perHouse };
@@ -134,7 +136,9 @@ export const HolderList: React.FC<HolderListProps> = ({
         {filtered.map(holder => {
           const accs = holderAccounts(holder.id);
           const deposited = summarize(holderTransactions(holder.id)).deposited;
-          const saldoPresente = accs.reduce((s, a) => s + (a.currentBalance || 0), 0);
+          const pendente = accs.reduce((s, a) => s + (a.pendingBalance || 0), 0);
+          // Saldo presente inclui o pendente das casas.
+          const saldoPresente = accs.reduce((s, a) => s + (a.currentBalance || 0) + (a.pendingBalance || 0), 0);
           const plPresente = saldoPresente - deposited;
           return (
             <div
@@ -186,9 +190,10 @@ export const HolderList: React.FC<HolderListProps> = ({
                     <span className="font-mono font-bold text-emerald-300">
                         {fmtBRL(saldoPresente)}
                     </span>
+                    {pendente !== 0 && <span className="text-[10px] text-amber-400/80 font-mono">inclui {fmtBRL(pendente)} pend.</span>}
                 </div>
                 <div className="flex flex-col text-right">
-                    <span className="text-slate-500">P/L (saldo − dep.)</span>
+                    <span className="text-slate-500">P/L (saldo+pend − dep.)</span>
                     <span className={`font-mono font-bold ${plPresente >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                         {fmtBRL(plPresente)}
                     </span>
@@ -310,13 +315,14 @@ export const HolderList: React.FC<HolderListProps> = ({
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
                   <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><Wallet size={12} /> Saldo presente</p>
                   <p className="text-lg font-bold font-mono text-emerald-300">{fmtBRL(profileStats.saldoPresente)}</p>
+                  {profileStats.pendente !== 0 && <p className="text-[10px] text-amber-400/80 font-mono mt-0.5">inclui {fmtBRL(profileStats.pendente)} pendente</p>}
                 </div>
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
                   <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><TrendingDown size={12} /> Total depositado</p>
                   <p className="text-lg font-bold font-mono text-amber-400">{fmtBRL(profileStats.totalDeposited)}</p>
                 </div>
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
-                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><BarChart3 size={12} /> P/L (saldo − dep.)</p>
+                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><BarChart3 size={12} /> P/L (saldo+pend − dep.)</p>
                   <p className={`text-lg font-bold font-mono ${profileStats.plPresente >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBRL(profileStats.plPresente)}</p>
                 </div>
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
@@ -346,7 +352,7 @@ export const HolderList: React.FC<HolderListProps> = ({
                           <tr key={h.house} className="hover:bg-slate-800/30">
                             <td className="px-3 py-2 text-slate-200">{h.house}</td>
                             <td className="px-3 py-2 text-right font-mono text-amber-400">{fmtBRL(h.deposited)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-emerald-300">{fmtBRL(h.saldo)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-emerald-300">{fmtBRL(h.saldo)}{h.pend !== 0 && <span className="block text-[10px] text-amber-400/80">pend. {fmtBRL(h.pend)}</span>}</td>
                             <td className={`px-3 py-2 text-right font-mono font-bold ${h.pl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBRL(h.pl)}</td>
                           </tr>
                         ))}
