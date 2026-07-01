@@ -54,3 +54,20 @@ export const MOCK_HOUSES = [
   'Stake',
   'Outra'
 ];
+
+// Categoria especial dos gastos: custo da operação de apostas.
+// No Resumo ela é somada à parte, separada das demais "Despesas".
+// (As categorias aparecem sozinhas conforme forem sendo usadas — não há lista fixa.)
+export const EXPENSE_APOSTAS_CATEGORY = 'APOSTAS';
+
+// Formas de pagamento de um gasto.
+export const PAYMENT_METHODS: { value: 'PIX' | 'DEBITO' | 'CREDITO' | 'BOLETO'; label: string }[] = [
+  { value: 'PIX', label: 'Pix' },
+  { value: 'DEBITO', label: 'Débito' },
+  { value: 'CREDITO', label: 'Crédito' },
+  { value: 'BOLETO', label: 'Boleto' },
+];
+export const PAYMENT_METHOD_LABELS: Record<string, string> = PAYMENT_METHODS.reduce((a, m) => { a[m.value] = m.label; return a; }, {} as Record<string, string>);
+
+// Nomes dos meses (usados nas abas Gastos e Resumo).
+export const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];

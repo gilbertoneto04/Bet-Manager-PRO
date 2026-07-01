@@ -11,8 +11,10 @@ import { HolderList } from './components/HolderList';
 import { Balances } from './components/Balances';
 import { Bets } from './components/Bets';
 import { Results } from './components/Results';
+import { Expenses } from './components/Expenses';
+import { Summary } from './components/Summary';
 import { Login } from './components/Login';
-import { Task, LogEntry, TaskStatus, TabView, TaskType, Account, Pack, User, PixKey, Holder, Transaction, Bank, Tipster, Bet } from './types';
+import { Task, LogEntry, TaskStatus, TabView, TaskType, Account, Pack, User, PixKey, Holder, Transaction, Bank, Tipster, Bet, Expense, MonthlyResult } from './types';
 import { TASK_TYPE_LABELS, TASK_STATUS_LABELS, MOCK_HOUSES, INITIAL_DEPOSIT_DESCRIPTION } from './constants';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -48,6 +50,8 @@ const App: React.FC = () => {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [tipsters, setTipsters] = useState<Tipster[]>([]);
   const [bets, setBets] = useState<Bet[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [monthlyResults, setMonthlyResults] = useState<MonthlyResult[]>([]);
   
   // Task Types State - Now includes ID and Order
   const [taskTypes, setTaskTypes] = useState<{ id?: string, label: string, value: string, order?: number }[]>(
@@ -152,6 +156,14 @@ const App: React.FC = () => {
       setBets(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Bet)));
     }, handleError('bets'));
 
+    const unsubExpenses = onSnapshot(collection(db, 'expenses'), (snapshot) => {
+      setExpenses(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Expense)));
+    }, handleError('expenses'));
+
+    const unsubMonthly = onSnapshot(collection(db, 'monthlyResults'), (snapshot) => {
+      setMonthlyResults(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as MonthlyResult)));
+    }, handleError('monthlyResults'));
+
     const unsubPix = onSnapshot(collection(db, 'pixKeys'), (snapshot) => {
       setPixKeys(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as PixKey)));
     }, handleError('pixKeys'));
@@ -201,7 +213,7 @@ const App: React.FC = () => {
     }, handleError('config_types'));
 
     return () => {
-      unsubTasks(); unsubAccounts(); unsubLogs(); unsubPacks(); unsubPix(); unsubUsers(); unsubHouses(); unsubProviders(); unsubTypes(); unsubHolders(); unsubTransactions(); unsubBanks(); unsubTipsters(); unsubBets();
+      unsubTasks(); unsubAccounts(); unsubLogs(); unsubPacks(); unsubPix(); unsubUsers(); unsubHouses(); unsubProviders(); unsubTypes(); unsubHolders(); unsubTransactions(); unsubBanks(); unsubTipsters(); unsubBets(); unsubExpenses(); unsubMonthly();
     };
   }, [currentUser]);
 
@@ -956,6 +968,50 @@ const App: React.FC = () => {
     } catch (e: any) { console.error(e); alert(`Erro ao editar apostas em massa: ${e.message}`); }
   };
 
+  // --- Expense (Gastos/Despesas) Handlers ---
+  const handleSaveExpense = async (e: Expense) => {
+    try {
+      if (e.id) {
+        const { id, ...data } = e;
+        await updateDoc(doc(db, 'expenses', id), sanitizePayload({ ...data, updatedAt: new Date().toISOString() }));
+        addLog(e.id, `Gasto ${e.category}`, `Gasto editado: ${e.item || ''} R$ ${Number(e.amount).toFixed(2)}`);
+      } else {
+        const { id, ...data } = e as any;
+        const ref = await addDoc(collection(db, 'expenses'), sanitizePayload({
+          ...data,
+          createdBy: currentUser?.name || 'Sistema',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }));
+        addLog(ref.id, `Gasto ${e.category}`, `Novo gasto: ${e.item || ''} R$ ${Number(e.amount).toFixed(2)}`);
+      }
+    } catch (err: any) { console.error(err); alert(`Erro ao salvar gasto: ${err.message}`); }
+  };
+
+  const handleDeleteExpense = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'expenses', id));
+      addLog(id, 'Gasto', 'Gasto removido');
+    } catch (err: any) { alert(`Erro ao remover gasto: ${err.message}`); }
+  };
+
+  // --- Resumo mensal: upsert por mês (uma linha por 'yyyy-mm') ---
+  const handleSaveMonthlyResult = async (month: string, data: Partial<MonthlyResult>) => {
+    try {
+      const existing = monthlyResults.find(r => r.month === month);
+      if (existing) {
+        // Campo limpo (undefined) vira null para o Firestore de fato apagar o valor.
+        const payload: any = { updatedAt: new Date().toISOString() };
+        Object.keys(data).forEach(k => { payload[k] = (data as any)[k] === undefined ? null : (data as any)[k]; });
+        await updateDoc(doc(db, 'monthlyResults', existing.id), payload);
+      } else {
+        await addDoc(collection(db, 'monthlyResults'), sanitizePayload({
+          month, ...data, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        }));
+      }
+    } catch (err: any) { console.error(err); alert(`Erro ao salvar fechamento do mês: ${err.message}`); }
+  };
+
   // --- Danger Zone / Database Clearing (CHUNKED DELETE) ---
   const handleClearOperationalData = async (): Promise<number> => {
      // Function to delete entire collections in batches of 100
@@ -983,7 +1039,9 @@ const App: React.FC = () => {
      totalDeleted += await deleteCollection('logs');
      totalDeleted += await deleteCollection('pixKeys');
      totalDeleted += await deleteCollection('transactions');
-     
+     totalDeleted += await deleteCollection('expenses');
+     totalDeleted += await deleteCollection('monthlyResults');
+
      return totalDeleted;
   };
 
@@ -1304,6 +1362,21 @@ const App: React.FC = () => {
             bets={bets}
             tipsters={tipsters}
             houseProviders={houseProviders}
+          />
+      )}
+      {activeTab === 'EXPENSES' && (
+          <Expenses
+            expenses={expenses}
+            banks={banks}
+            onSaveExpense={handleSaveExpense}
+            onDeleteExpense={handleDeleteExpense}
+          />
+      )}
+      {activeTab === 'SUMMARY' && (
+          <Summary
+            expenses={expenses}
+            monthlyResults={monthlyResults}
+            onSaveMonthlyResult={handleSaveMonthlyResult}
           />
       )}
     </Layout>

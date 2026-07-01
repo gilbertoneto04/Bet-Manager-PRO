@@ -200,4 +200,42 @@ export interface Bet {
   updatedAt?: string;
 }
 
-export type TabView = 'DASHBOARD' | 'NEW_REQUEST' | 'HISTORY' | 'ACCOUNTS_ACTIVE' | 'ACCOUNTS_LIMITED' | 'ACCOUNTS_REPLACEMENT' | 'ACCOUNTS_DELETED' | 'PACKS' | 'SETTINGS' | 'INSIGHTS' | 'HOLDERS' | 'BALANCES' | 'BETS' | 'RESULTS';
+// Forma de pagamento de um gasto.
+export type PaymentMethod = 'PIX' | 'DEBITO' | 'CREDITO' | 'BOLETO';
+
+// Gasto/Despesa avulsa (espelha a aba "Gastos - <mês>" do Sheets).
+// A categoria APOSTAS é o custo da operação e fica separada no Resumo.
+// VALOR pode ser negativo (estorno/reembolso), como na planilha.
+export interface Expense {
+  id: string;
+  date: string;          // DATA (ISO yyyy-mm-dd)
+  category: string;      // CATEGORIA (APOSTAS é destacada)
+  item?: string;         // ITEM (nome curto)
+  amount: number;        // VALOR (positivo = saída; negativo = estorno)
+  description?: string;  // DESCRIÇÃO
+  source?: string;       // RAZÃO SOCIAL (ex.: MP, NU, NUPJ, SC...)
+  bank?: string;         // Banco usado no pagamento
+  paymentMethod?: PaymentMethod; // Forma de pagamento (pix/débito/crédito/boleto)
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// Fechamento mensal do Resumo. Guarda só as entradas MANUAIS de cada mês;
+// Despesas e Apostas (custo) são derivadas do livro de gastos (Expense).
+// Resultado = (Final − Inicial) + Despesas + Apostas + Scam − Rendimentos
+// Lucro Real = Resultado − Apostas + Rendimentos
+// Adicional = Lucro Real − Despesas
+export interface MonthlyResult {
+  id: string;
+  month: string;              // 'yyyy-mm'
+  patrimonioInicial?: number; // patrimônio no início do mês
+  patrimonioFinal?: number;   // patrimônio no fim do mês
+  scam?: number;              // valor scammado no mês (aba "Saldo Scammado")
+  rendimentos?: number;       // rendimentos/juros do mês
+  note?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type TabView = 'DASHBOARD' | 'NEW_REQUEST' | 'HISTORY' | 'ACCOUNTS_ACTIVE' | 'ACCOUNTS_LIMITED' | 'ACCOUNTS_REPLACEMENT' | 'ACCOUNTS_DELETED' | 'PACKS' | 'SETTINGS' | 'INSIGHTS' | 'HOLDERS' | 'BALANCES' | 'BETS' | 'RESULTS' | 'EXPENSES' | 'SUMMARY';
