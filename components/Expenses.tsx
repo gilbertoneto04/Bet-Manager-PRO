@@ -1,11 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Expense, Bank, PaymentMethod } from '../types';
 import { fmtBRL } from '../finance';
-import { EXPENSE_APOSTAS_CATEGORY, PAYMENT_METHODS, PAYMENT_METHOD_LABELS, MONTH_NAMES } from '../constants';
+import { EXPENSE_APOSTAS_CATEGORY, PAYMENT_METHODS, MONTH_NAMES } from '../constants';
 import { ExpensesImport } from './ExpensesImport'; // TEMP: importador do Sheets — remover na versão final
 import {
-  Receipt, Wallet, Dices, Sigma, ListChecks, Search, Filter, Plus, Pencil, Trash2, X, Save,
-  ChevronLeft, ChevronRight, CalendarDays, Tag, PieChart, Landmark, CreditCard
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
+} from 'recharts';
+import {
+  Wallet, Dices, Sigma, ListChecks, Search, Filter, Plus, Trash2,
+  ChevronLeft, ChevronRight, CalendarDays, ArrowDownUp, BarChart3, ChevronDown, ChevronUp, X,
 } from 'lucide-react';
 
 interface ExpensesProps {
@@ -15,38 +18,60 @@ interface ExpensesProps {
   onDeleteExpense: (id: string) => void;
 }
 
-const toNum = (s: string | number) => {
-  const n = parseFloat(String(s).replace(',', '.'));
-  return isNaN(n) ? 0 : n;
-};
+const toNum = (s: string | number) => { const n = parseFloat(String(s).replace(',', '.')); return isNaN(n) ? 0 : n; };
 const todayISO = () => new Date().toISOString().slice(0, 10);
-const monthOf = (d?: string) => (d || '').slice(0, 7);           // yyyy-mm
-const monthLabel = (ym: string) => {
-  const [y, m] = ym.split('-');
-  const idx = Number(m) - 1;
-  return idx >= 0 && idx < 12 ? `${MONTH_NAMES[idx]} ${y}` : ym;
-};
-const shiftMonth = (ym: string, delta: number) => {
-  const [y, m] = ym.split('-').map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-};
-const fmtDate = (d?: string) => {
-  const iso = (d || '').slice(0, 10);
-  const [y, m, day] = iso.split('-');
-  return (day && m && y) ? `${day}/${m}/${y}` : (d || '—');
-};
+const monthOf = (d?: string) => (d || '').slice(0, 7);
+const monthLabel = (ym: string) => { const [y, m] = ym.split('-'); const i = Number(m) - 1; return i >= 0 && i < 12 ? `${MONTH_NAMES[i]}/${(y || '').slice(2)}` : (ym || 'Sem data'); };
+const monthLabelFull = (ym: string) => { const [y, m] = ym.split('-'); const i = Number(m) - 1; return i >= 0 && i < 12 ? `${MONTH_NAMES[i]} ${y}` : ym; };
+const shiftMonth = (ym: string, delta: number) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + delta, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 const isApostas = (cat?: string) => (cat || '').trim().toUpperCase() === EXPENSE_APOSTAS_CATEGORY;
-// Evita que o scroll do mouse altere o valor de campos numéricos.
 const blurOnWheel = (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.blur();
+const openPicker = (e: React.SyntheticEvent<HTMLInputElement>) => { try { (e.currentTarget as any).showPicker?.(); } catch {} };
 
-const inputClass = 'w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none';
-const selClass = 'bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none';
+type SortKey = 'DATE_DESC' | 'DATE_ASC' | 'AMOUNT_DESC' | 'AMOUNT_ASC' | 'CATEGORY' | 'ITEM';
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: 'DATE_DESC', label: 'Data (mais recente)' },
+  { value: 'DATE_ASC', label: 'Data (mais antiga)' },
+  { value: 'AMOUNT_DESC', label: 'Maior gasto' },
+  { value: 'AMOUNT_ASC', label: 'Menor gasto' },
+  { value: 'CATEGORY', label: 'Categoria (A–Z)' },
+  { value: 'ITEM', label: 'Item (A–Z)' },
+];
+const PAGE_SIZES = [25, 50, 100, Infinity];
 
-const emptyExpense = (): Partial<Expense> => ({ date: todayISO(), category: '', item: '', amount: undefined, description: '', source: '', bank: '', paymentMethod: 'PIX' });
+// --- Célula editável inline (estilo planilha) ---
+const cellCls = 'w-full bg-transparent border border-transparent hover:border-slate-700 focus:border-indigo-500 focus:bg-slate-950 rounded px-2 py-1 text-sm text-slate-200 outline-none focus:ring-1 focus:ring-indigo-500 transition-colors';
+
+const InlineText: React.FC<{ value?: string; onCommit: (v: string) => void; listId?: string; placeholder?: string; className?: string }> = ({ value, onCommit, listId, placeholder, className }) => {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input type="text" list={listId} value={draft ?? (value ?? '')} placeholder={placeholder ?? '—'}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={() => { if (draft !== null) { const v = draft.trim(); if (v !== (value ?? '')) onCommit(v); setDraft(null); } }}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      className={className ?? cellCls} />
+  );
+};
+const InlineNumber: React.FC<{ value?: number; onCommit: (v: number) => void; className?: string }> = ({ value, onCommit, className }) => {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input type="number" step="0.01" value={draft ?? (value != null ? String(value) : '')} placeholder="0,00" onWheel={blurOnWheel}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={() => { if (draft !== null) { const v = toNum(draft); if (v !== (value ?? 0)) onCommit(v); setDraft(null); } }}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      className={`${className ?? cellCls} text-right font-mono`} />
+  );
+};
+const InlineDate: React.FC<{ value?: string; onCommit: (v: string) => void }> = ({ value, onCommit }) => (
+  <input type="date" value={(value || '').slice(0, 10)} onClick={openPicker}
+    onChange={e => { if (e.target.value !== (value || '').slice(0, 10)) onCommit(e.target.value); }}
+    className={`${cellCls} [color-scheme:dark] cursor-pointer font-mono text-xs w-[128px]`} />
+);
+
+const CHART_COLORS = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#a78bfa', '#f87171', '#2dd4bf', '#e879f9', '#4ade80', '#fb923c', '#38bdf8'];
 
 export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpense, onDeleteExpense }) => {
-  // Mês inicial: o mês do lançamento mais recente; se não houver, o mês atual.
+  // Mês inicial: o do lançamento mais recente; senão, o atual.
   const latestMonth = useMemo(() => {
     const months = expenses.map(e => monthOf(e.date)).filter(Boolean).sort();
     return months.length ? months[months.length - 1] : monthOf(todayISO());
@@ -56,134 +81,154 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
   const [allMonths, setAllMonths] = useState(false);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('ALL');
-  const [filterSource, setFilterSource] = useState('ALL');
-  const [modal, setModal] = useState<Partial<Expense> | null>(null);
+  const [filterBank, setFilterBank] = useState('ALL');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sortBy, setSortBy] = useState<SortKey>('DATE_DESC');
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [page, setPage] = useState(0);
+  const [draft, setDraft] = useState<Partial<Expense>>({ date: todayISO(), paymentMethod: 'PIX' });
+  const [showAnalysis, setShowAnalysis] = useState(true);
 
-  // Se o mês selecionado ficou "para trás" após carregar os dados, acompanha o mais recente uma vez.
-  React.useEffect(() => { setMonth(latestMonth); }, [latestMonth]);
+  useEffect(() => { setMonth(latestMonth); }, [latestMonth]);
 
-  // Categorias e fontes aparecem só conforme forem sendo preenchidas (derivadas dos dados).
-  const categoryOptions = useMemo(
-    () => Array.from(new Set(expenses.map(e => (e.category || '').trim()).filter(Boolean))).sort(),
-    [expenses]
-  );
-  const sourceOptions = useMemo(
-    () => Array.from(new Set(expenses.map(e => (e.source || '').trim()).filter(Boolean))).sort(),
-    [expenses]
-  );
-  // Bancos: os cadastrados em Bancos & Investimentos + os já usados em gastos.
-  const bankOptions = useMemo(
-    () => Array.from(new Set([...banks.map(b => b.name), ...expenses.map(e => (e.bank || '').trim())].filter(Boolean))).sort(),
-    [banks, expenses]
-  );
+  const usingDateRange = !!(dateFrom || dateTo);
 
+  // Opções derivadas dos dados (aparecem conforme uso).
+  const categoryOptions = useMemo(() => Array.from(new Set(expenses.map(e => (e.category || '').trim()).filter(Boolean))).sort(), [expenses]);
+  const sourceOptions = useMemo(() => Array.from(new Set(expenses.map(e => (e.source || '').trim()).filter(Boolean))).sort(), [expenses]);
+  const bankOptions = useMemo(() => Array.from(new Set([...banks.map(b => b.name), ...expenses.map(e => (e.bank || '').trim())].filter(Boolean))).sort(), [banks, expenses]);
+  const monthsInData = useMemo(() => Array.from(new Set(expenses.map(e => monthOf(e.date)).filter(Boolean))).sort(), [expenses]);
+
+  // --- Lançamentos: período (data range OU mês) + filtros + busca ---
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return expenses
-      .filter(e => {
-        if (!allMonths && monthOf(e.date) !== month) return false;
-        if (filterCategory !== 'ALL' && (e.category || '').trim() !== filterCategory) return false;
-        if (filterSource !== 'ALL' && (e.source || '').trim() !== filterSource) return false;
-        if (term) {
-          const hay = [e.category, e.item, e.description, e.source, e.bank].join(' ').toLowerCase();
-          if (!hay.includes(term)) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  }, [expenses, month, allMonths, search, filterCategory, filterSource]);
+    let list = expenses.filter(e => {
+      if (usingDateRange) {
+        const d = (e.date || '').slice(0, 10);
+        if (dateFrom && (!d || d < dateFrom)) return false;
+        if (dateTo && (!d || d > dateTo)) return false;
+      } else if (!allMonths) {
+        if (monthOf(e.date) !== month) return false;
+      }
+      if (filterCategory !== 'ALL' && (e.category || '').trim() !== filterCategory) return false;
+      if (filterBank !== 'ALL' && (e.bank || '').trim() !== filterBank) return false;
+      if (term) {
+        const hay = [e.category, e.item, e.description, e.source, e.bank].join(' ').toLowerCase();
+        if (!hay.includes(term)) return false;
+      }
+      return true;
+    });
+    const cmp: Record<SortKey, (a: Expense, b: Expense) => number> = {
+      DATE_DESC: (a, b) => (b.date || '').localeCompare(a.date || ''),
+      DATE_ASC: (a, b) => (a.date || '').localeCompare(b.date || ''),
+      AMOUNT_DESC: (a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0),
+      AMOUNT_ASC: (a, b) => (Number(a.amount) || 0) - (Number(b.amount) || 0),
+      CATEGORY: (a, b) => (a.category || '').localeCompare(b.category || '') || (b.date || '').localeCompare(a.date || ''),
+      ITEM: (a, b) => (a.item || '').localeCompare(b.item || '') || (b.date || '').localeCompare(a.date || ''),
+    };
+    return [...list].sort(cmp[sortBy]);
+  }, [expenses, month, allMonths, usingDateRange, dateFrom, dateTo, search, filterCategory, filterBank, sortBy]);
 
-  // KPIs: mesmo split do Resumo (Despesas = tudo que NÃO é APOSTAS; Apostas = categoria APOSTAS).
+  useEffect(() => { setPage(0); }, [month, allMonths, dateFrom, dateTo, search, filterCategory, filterBank, sortBy, pageSize]);
+
   const kpis = useMemo(() => {
     let despesas = 0, apostas = 0;
-    filtered.forEach(e => {
-      const v = Number(e.amount) || 0;
-      if (isApostas(e.category)) apostas += v; else despesas += v;
-    });
+    filtered.forEach(e => { const v = Number(e.amount) || 0; if (isApostas(e.category)) apostas += v; else despesas += v; });
     return { despesas, apostas, total: despesas + apostas, count: filtered.length };
   }, [filtered]);
 
-  // Pivô "Gasto por categoria" (soma por categoria no recorte atual, ordenado por maior gasto).
-  const byCategory = useMemo(() => {
-    const map = new Map<string, number>();
-    filtered.forEach(e => {
-      const key = (e.category || '').trim() || '—';
-      map.set(key, (map.get(key) || 0) + (Number(e.amount) || 0));
-    });
-    return Array.from(map.entries()).map(([key, total]) => ({ key, total })).sort((a, b) => b.total - a.total);
-  }, [filtered]);
+  const totalPages = pageSize === Infinity ? 1 : Math.max(1, Math.ceil(filtered.length / pageSize));
+  const curPage = Math.min(page, totalPages - 1);
+  const pageRows = pageSize === Infinity ? filtered : filtered.slice(curPage * pageSize, curPage * pageSize + pageSize);
+  const rowStart = filtered.length === 0 ? 0 : (pageSize === Infinity ? 1 : curPage * pageSize + 1);
+  const rowEnd = pageSize === Infinity ? filtered.length : Math.min(filtered.length, curPage * pageSize + pageSize);
 
-  const saveFromModal = () => {
-    if (!modal) return;
-    const category = (modal.category || '').trim();
-    if (!category) { alert('Informe a categoria.'); return; }
-    if (modal.amount === undefined || modal.amount === null || Number.isNaN(Number(modal.amount))) { alert('Informe o valor.'); return; }
+  const commitDraft = () => {
+    const category = (draft.category || '').trim();
+    if (draft.amount === undefined || Number.isNaN(Number(draft.amount))) { alert('Informe o valor do novo gasto.'); return; }
     onSaveExpense({
-      id: modal.id || '',
-      date: modal.date || todayISO(),
-      category,
-      item: (modal.item || '').trim() || undefined,
-      amount: Number(modal.amount) || 0,
-      description: (modal.description || '').trim() || undefined,
-      source: (modal.source || '').trim() || undefined,
-      bank: (modal.bank || '').trim() || undefined,
-      paymentMethod: modal.paymentMethod || undefined,
-      createdAt: modal.createdAt || new Date().toISOString(),
+      id: '', date: draft.date || todayISO(), category,
+      item: (draft.item || '').trim() || undefined, amount: Number(draft.amount) || 0,
+      description: (draft.description || '').trim() || undefined, source: (draft.source || '').trim() || undefined,
+      bank: (draft.bank || '').trim() || undefined, paymentMethod: draft.paymentMethod || undefined,
+      createdAt: new Date().toISOString(),
     } as Expense);
-    setModal(null);
+    setDraft({ date: draft.date || todayISO(), paymentMethod: 'PIX' });
   };
 
-  const openPicker = (e: React.SyntheticEvent<HTMLInputElement>) => { try { (e.currentTarget as any).showPicker?.(); } catch {} };
+  const clearRangeFilters = () => { setDateFrom(''); setDateTo(''); };
+
+  // --- Análise (gráficos) — filtros PRÓPRIOS, separados dos lançamentos ---
+  const [aCats, setACats] = useState<Set<string>>(new Set());
+  const [aMonths, setAMonths] = useState<Set<string>>(new Set());
+  const [aBanks, setABanks] = useState<Set<string>>(new Set());
+  const toggle = (set: Set<string>, val: string, setter: (s: Set<string>) => void) => { const n = new Set(set); n.has(val) ? n.delete(val) : n.add(val); setter(n); };
+
+  const analysisRows = useMemo(() => expenses.filter(e => {
+    if (aCats.size && !aCats.has((e.category || '').trim())) return false;
+    if (aMonths.size && !aMonths.has(monthOf(e.date))) return false;
+    if (aBanks.size && !aBanks.has((e.bank || '').trim())) return false;
+    return true;
+  }), [expenses, aCats, aMonths, aBanks]);
+
+  const analysisTotal = useMemo(() => analysisRows.reduce((s, e) => s + (Number(e.amount) || 0), 0), [analysisRows]);
+  const analysisByCategory = useMemo(() => {
+    const m = new Map<string, number>();
+    analysisRows.forEach(e => { const k = (e.category || '').trim() || 'Sem categoria'; m.set(k, (m.get(k) || 0) + (Number(e.amount) || 0)); });
+    return Array.from(m.entries()).map(([key, total]) => ({ key, total })).sort((a, b) => b.total - a.total);
+  }, [analysisRows]);
+  const analysisByMonth = useMemo(() => {
+    const m = new Map<string, number>();
+    analysisRows.forEach(e => { const k = monthOf(e.date); m.set(k, (m.get(k) || 0) + (Number(e.amount) || 0)); });
+    return Array.from(m.entries()).map(([key, total]) => ({ key: monthLabel(key), total })).sort((a, b) => a.key.localeCompare(b.key));
+  }, [analysisRows]);
+
+  const selCls = 'bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none';
+  const dateCls = `${selCls} [color-scheme:dark] cursor-pointer`;
+  const addCls = 'w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-white focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none';
 
   const SummaryCard = ({ icon: Icon, label, value, accent, sub }: { icon: any; label: string; value: string; accent: string; sub?: string }) => (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center gap-3">
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${accent}`}><Icon size={20} /></div>
-      <div className="min-w-0">
-        <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">{label}</p>
-        <p className="text-lg font-bold text-white font-mono truncate">{value}</p>
-        {sub && <p className="text-[10px] text-slate-500">{sub}</p>}
-      </div>
+      <div className="min-w-0"><p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">{label}</p><p className="text-lg font-bold text-white font-mono truncate">{value}</p>{sub && <p className="text-[10px] text-slate-500">{sub}</p>}</div>
     </div>
+  );
+  const Chip = ({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) => (
+    <button onClick={onClick} className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${on ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-slate-200'}`}>{label}</button>
   );
 
   return (
     <div className="space-y-6">
+      {/* Datalists compartilhadas */}
+      <datalist id="exp-cats">{categoryOptions.map(c => <option key={c} value={c} />)}</datalist>
+      <datalist id="exp-banks">{bankOptions.map(b => <option key={b} value={b} />)}</datalist>
+      <datalist id="exp-sources">{sourceOptions.map(s => <option key={s} value={s} />)}</datalist>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-white">Gastos / Despesas</h2>
           <p className="text-slate-400 text-sm mt-1">Livro de despesas mês a mês — a categoria <span className="text-indigo-300 font-medium">APOSTAS</span> é o custo da operação</p>
         </div>
-        <div className="flex items-center gap-2">
-          {/* TEMP: importador do Sheets — remover na versão final (apague só esta linha) */}
-          <ExpensesImport expenses={expenses} onSaveExpense={onSaveExpense} />
-          <button
-            onClick={() => setModal(emptyExpense())}
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-          >
-            <Plus size={16} /> Novo gasto
-          </button>
-        </div>
+        <ExpensesImport expenses={expenses} onSaveExpense={onSaveExpense} />
       </div>
 
       {/* Navegação de mês */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className={`flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1 ${allMonths ? 'opacity-40 pointer-events-none' : ''}`}>
+        <div className={`flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1 ${allMonths || usingDateRange ? 'opacity-40 pointer-events-none' : ''}`}>
           <button onClick={() => setMonth(m => shiftMonth(m, -1))} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors" title="Mês anterior"><ChevronLeft size={18} /></button>
           <div className="relative flex items-center gap-2 px-3 min-w-[150px] justify-center">
             <CalendarDays size={15} className="text-indigo-400 shrink-0" />
-            <span className="text-sm font-semibold text-white">{monthLabel(month)}</span>
-            <input type="month" value={month} onChange={e => e.target.value && setMonth(e.target.value)} onClick={openPicker}
-              className="absolute inset-0 opacity-0 cursor-pointer [color-scheme:dark]" title="Escolher mês" />
+            <span className="text-sm font-semibold text-white">{monthLabelFull(month)}</span>
+            <input type="month" value={month} onChange={e => e.target.value && setMonth(e.target.value)} onClick={openPicker} className="absolute inset-0 opacity-0 cursor-pointer [color-scheme:dark]" title="Escolher mês" />
           </div>
           <button onClick={() => setMonth(m => shiftMonth(m, 1))} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors" title="Próximo mês"><ChevronRight size={18} /></button>
         </div>
-        <button
-          onClick={() => setAllMonths(v => !v)}
-          className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${allMonths ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'}`}
-        >
+        <button onClick={() => setAllMonths(v => !v)} disabled={usingDateRange} className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-colors disabled:opacity-40 ${allMonths ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'}`}>
           {allMonths ? 'Vendo: todos os meses' : 'Ver todos os meses'}
         </button>
+        {usingDateRange && <span className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1">Filtrando por data — mês ignorado</span>}
       </div>
 
       {/* KPIs */}
@@ -191,197 +236,176 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
         <SummaryCard icon={Wallet} label="Despesas (sem apostas)" value={fmtBRL(kpis.despesas)} accent="bg-rose-500/10 text-rose-400" />
         <SummaryCard icon={Dices} label="Apostas (custo)" value={fmtBRL(kpis.apostas)} accent="bg-indigo-500/10 text-indigo-400" />
         <SummaryCard icon={Sigma} label="Gasto total" value={fmtBRL(kpis.total)} accent="bg-amber-500/10 text-amber-400" />
-        <SummaryCard icon={ListChecks} label="Lançamentos" value={String(kpis.count)} accent="bg-slate-500/10 text-slate-300" sub={allMonths ? 'todos os meses' : monthLabel(month)} />
+        <SummaryCard icon={ListChecks} label="Lançamentos" value={String(kpis.count)} accent="bg-slate-500/10 text-slate-300" sub={usingDateRange ? 'período por data' : (allMonths ? 'todos os meses' : monthLabelFull(month))} />
       </div>
 
-      {/* Filtros */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col lg:flex-row gap-3 lg:items-center">
+      {/* --- Painel de Análise / Gráficos (filtros próprios) --- */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+        <button onClick={() => setShowAnalysis(v => !v)} className="w-full flex items-center justify-between gap-3 px-5 py-3 bg-slate-950/50 hover:bg-slate-900/80 transition-colors">
+          <div className="flex items-center gap-2"><BarChart3 size={18} className="text-emerald-400" /><h3 className="text-sm font-bold text-white">Análise por gráficos</h3><span className="text-xs text-slate-500">filtros independentes dos lançamentos</span></div>
+          {showAnalysis ? <ChevronUp size={18} className="text-slate-500" /> : <ChevronDown size={18} className="text-slate-500" />}
+        </button>
+        {showAnalysis && (
+          <div className="p-5 space-y-4 border-t border-slate-800">
+            {/* filtros de análise */}
+            <div className="space-y-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mb-1.5">Categorias {aCats.size > 0 && <button onClick={() => setACats(new Set())} className="ml-1 text-indigo-300 lowercase">limpar</button>}</p>
+                <div className="flex flex-wrap gap-1.5">{categoryOptions.length === 0 ? <span className="text-xs text-slate-600">nenhuma ainda</span> : categoryOptions.map(c => <Chip key={c} on={aCats.has(c)} label={c} onClick={() => toggle(aCats, c, setACats)} />)}</div>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mb-1.5">Meses {aMonths.size > 0 && <button onClick={() => setAMonths(new Set())} className="ml-1 text-indigo-300 lowercase">limpar</button>}</p>
+                <div className="flex flex-wrap gap-1.5">{monthsInData.length === 0 ? <span className="text-xs text-slate-600">nenhum ainda</span> : monthsInData.map(m => <Chip key={m} on={aMonths.has(m)} label={monthLabel(m)} onClick={() => toggle(aMonths, m, setAMonths)} />)}</div>
+              </div>
+              {bankOptions.length > 0 && (
+                <div>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mb-1.5">Bancos {aBanks.size > 0 && <button onClick={() => setABanks(new Set())} className="ml-1 text-indigo-300 lowercase">limpar</button>}</p>
+                  <div className="flex flex-wrap gap-1.5">{bankOptions.map(b => <Chip key={b} on={aBanks.has(b)} label={b} onClick={() => toggle(aBanks, b, setABanks)} />)}</div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2"><span className="text-[11px] text-slate-500 uppercase mr-2">Total filtrado</span><span className="text-lg font-bold text-white font-mono">{fmtBRL(analysisTotal)}</span></div>
+              <span className="text-xs text-slate-500">{analysisRows.length} lançamento(s) · {aCats.size || 'todas'} categoria(s) · {aMonths.size || 'todos'} mês(es)</span>
+            </div>
+            {/* gráficos */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3">
+                <p className="text-xs font-semibold text-slate-400 mb-2">Por categoria</p>
+                {analysisByCategory.length === 0 ? <p className="text-xs text-slate-600 py-8 text-center">Sem dados.</p> : (
+                  <ResponsiveContainer width="100%" height={Math.max(160, analysisByCategory.length * 34)}>
+                    <BarChart data={analysisByCategory} layout="vertical" margin={{ left: 8, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                      <XAxis type="number" tickFormatter={v => `R$${Math.round(v)}`} stroke="#64748b" fontSize={11} />
+                      <YAxis type="category" dataKey="key" width={90} stroke="#94a3b8" fontSize={11} />
+                      <Tooltip formatter={(v: any) => fmtBRL(Number(v))} contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} cursor={{ fill: '#1e293b55' }} />
+                      <Bar dataKey="total" radius={[0, 4, 4, 0]}>{analysisByCategory.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}</Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3">
+                <p className="text-xs font-semibold text-slate-400 mb-2">Por mês</p>
+                {analysisByMonth.length === 0 ? <p className="text-xs text-slate-600 py-8 text-center">Sem dados.</p> : (
+                  <ResponsiveContainer width="100%" height={Math.max(160, analysisByCategory.length * 34)}>
+                    <BarChart data={analysisByMonth} margin={{ left: 8, right: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                      <XAxis dataKey="key" stroke="#94a3b8" fontSize={11} />
+                      <YAxis tickFormatter={v => `R$${Math.round(v)}`} stroke="#64748b" fontSize={11} width={54} />
+                      <Tooltip formatter={(v: any) => fmtBRL(Number(v))} contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} cursor={{ fill: '#1e293b55' }} />
+                      <Bar dataKey="total" fill="#818cf8" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* --- Filtros dos lançamentos --- */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col lg:flex-row gap-3 lg:items-center lg:flex-wrap">
         <div className="flex items-center gap-2 text-slate-400 text-sm font-medium shrink-0"><Filter size={16} /> Filtros:</div>
-        <div className="relative flex-1 lg:max-w-xs">
+        <div className="relative flex-1 lg:max-w-[220px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar item, descrição, razão, banco..."
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none" />
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar..." className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none" />
         </div>
-        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className={selClass}>
-          <option value="ALL">Todas as categorias</option>
-          {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={filterSource} onChange={e => setFilterSource(e.target.value)} className={selClass}>
-          <option value="ALL">Todas as razões sociais</option>
-          {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className={selCls}><option value="ALL">Todas as categorias</option>{categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}</select>
+        <select value={filterBank} onChange={e => setFilterBank(e.target.value)} className={selCls}><option value="ALL">Todos os bancos</option>{bankOptions.map(b => <option key={b} value={b}>{b}</option>)}</select>
+        <div className="flex items-center gap-1.5">
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} onClick={openPicker} title="De" className={dateCls} />
+          <span className="text-slate-600 text-xs">até</span>
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} onClick={openPicker} title="Até" className={dateCls} />
+          {usingDateRange && <button onClick={clearRangeFilters} className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg" title="Limpar datas"><X size={14} /></button>}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr,320px] gap-6 items-start">
-        {/* Tabela de lançamentos */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-          <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-800 bg-slate-950/50">
-            <div className="flex items-center gap-2 min-w-0">
-              <Receipt size={18} className="text-indigo-400 shrink-0" />
-              <h3 className="text-sm font-bold text-white">Lançamentos</h3>
-              <span className="text-xs text-slate-500">{filtered.length} {filtered.length === 1 ? 'registro' : 'registros'}</span>
-            </div>
-            <span className="text-sm font-bold text-white font-mono">{fmtBRL(kpis.total)}</span>
+      {/* --- Barra de ferramentas: ordenar + limite --- */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <ArrowDownUp size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+            <select value={sortBy} onChange={e => setSortBy(e.target.value as SortKey)} className={`${selCls} pl-9`}>{SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
           </div>
-
-          {filtered.length === 0 ? (
-            <div className="px-5 py-16 text-center">
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-slate-800 mb-3 text-slate-500"><Receipt size={26} /></div>
-              <h3 className="text-slate-300 font-medium">Nenhum gasto neste recorte</h3>
-              <p className="text-slate-500 text-sm">Use “Novo gasto” para lançar ou ajuste o mês/filtros.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-800/70">
-                  <tr>
-                    <th className="text-left font-semibold px-5 py-2">Data</th>
-                    <th className="text-left font-semibold px-3 py-2">Categoria</th>
-                    <th className="text-left font-semibold px-3 py-2">Item</th>
-                    <th className="text-right font-semibold px-3 py-2">Valor</th>
-                    <th className="text-left font-semibold px-3 py-2">Descrição</th>
-                    <th className="text-left font-semibold px-3 py-2">Razão social</th>
-                    <th className="text-left font-semibold px-3 py-2">Banco / Pgto</th>
-                    <th className="text-right font-semibold px-5 py-2">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/70">
-                  {filtered.map(e => (
-                    <tr key={e.id} className="hover:bg-slate-800/20 transition-colors">
-                      <td className="px-5 py-2.5 text-slate-300 whitespace-nowrap font-mono text-xs">{fmtDate(e.date)}</td>
-                      <td className="px-3 py-2.5">
-                        <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${isApostas(e.category) ? 'text-indigo-300 bg-indigo-500/10 border-indigo-500/20' : 'text-slate-300 bg-slate-700/30 border-slate-600/30'}`}>
-                          {isApostas(e.category) && <Dices size={10} />}{e.category || '—'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-200 whitespace-nowrap">{e.item || '—'}</td>
-                      <td className={`px-3 py-2.5 text-right font-mono font-semibold whitespace-nowrap ${(Number(e.amount) || 0) < 0 ? 'text-emerald-400' : 'text-slate-100'}`}>{fmtBRL(Number(e.amount) || 0)}</td>
-                      <td className="px-3 py-2.5 text-slate-400 max-w-[220px] truncate" title={e.description || ''}>{e.description || '—'}</td>
-                      <td className="px-3 py-2.5 text-slate-400 whitespace-nowrap">{e.source || '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        {(e.bank || e.paymentMethod) ? (
-                          <span className="inline-flex items-center gap-1.5 text-xs text-slate-300">
-                            {e.bank && <span className="inline-flex items-center gap-1"><Landmark size={11} className="text-slate-500" />{e.bank}</span>}
-                            {e.paymentMethod && <span className="text-[10px] text-sky-300 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded-full">{PAYMENT_METHOD_LABELS[e.paymentMethod]}</span>}
-                          </span>
-                        ) : <span className="text-slate-600">—</span>}
-                      </td>
-                      <td className="px-5 py-2.5">
-                        <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => setModal({ ...e })} className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors" title="Editar"><Pencil size={14} /></button>
-                          <button onClick={() => { if (confirm('Excluir este gasto?')) onDeleteExpense(e.id); }} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors" title="Excluir"><Trash2 size={14} /></button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <select value={String(pageSize)} onChange={e => setPageSize(e.target.value === 'Infinity' ? Infinity : Number(e.target.value))} className={selCls} title="Linhas por página">
+            {PAGE_SIZES.map(n => <option key={String(n)} value={String(n)}>{n === Infinity ? 'Todas as linhas' : `${n} linhas`}</option>)}
+          </select>
         </div>
+        <span className="text-xs text-slate-500 font-mono">{filtered.length === 0 ? 'nenhum lançamento' : `${rowStart}–${rowEnd} de ${filtered.length}`}</span>
+      </div>
 
-        {/* Pivô: Gasto por categoria */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-          <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-800 bg-slate-950/50">
-            <PieChart size={18} className="text-amber-400 shrink-0" />
-            <h3 className="text-sm font-bold text-white">Gasto por categoria</h3>
-          </div>
-          {byCategory.length === 0 ? (
-            <div className="px-5 py-10 text-center text-slate-500 text-sm">Sem dados no recorte atual.</div>
-          ) : (
-            <div className="divide-y divide-slate-800/70">
-              {byCategory.map(c => (
-                <div key={c.key} className="flex items-center justify-between gap-3 px-5 py-2.5">
-                  <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${isApostas(c.key) ? 'text-indigo-300' : 'text-slate-300'}`}>
-                    {isApostas(c.key) ? <Dices size={12} /> : <Tag size={12} className="text-slate-500" />}{c.key}
-                  </span>
-                  <span className={`text-sm font-mono font-semibold ${c.total < 0 ? 'text-emerald-400' : 'text-slate-100'}`}>{fmtBRL(c.total)}</span>
-                </div>
+      {/* --- Tabela editável inline --- */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-800/70 bg-slate-950/40">
+              <tr>
+                <th className="text-left font-semibold px-3 py-2">Data</th>
+                <th className="text-left font-semibold px-3 py-2">Categoria</th>
+                <th className="text-left font-semibold px-3 py-2">Item</th>
+                <th className="text-right font-semibold px-3 py-2">Valor</th>
+                <th className="text-left font-semibold px-3 py-2">Descrição</th>
+                <th className="text-left font-semibold px-3 py-2">Banco</th>
+                <th className="text-left font-semibold px-3 py-2">Razão social</th>
+                <th className="text-left font-semibold px-3 py-2">Pgto</th>
+                <th className="text-right font-semibold px-3 py-2 w-10"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/70">
+              {/* Linha de adição rápida */}
+              <tr className="bg-slate-950/40">
+                <td className="px-2 py-1.5"><input type="date" value={draft.date || todayISO()} onClick={openPicker} onChange={e => setDraft(d => ({ ...d, date: e.target.value }))} className={`${addCls} [color-scheme:dark] cursor-pointer font-mono text-xs`} /></td>
+                <td className="px-2 py-1.5"><input type="text" list="exp-cats" value={draft.category || ''} onChange={e => setDraft(d => ({ ...d, category: e.target.value }))} placeholder="Categoria" className={addCls} /></td>
+                <td className="px-2 py-1.5"><input type="text" value={draft.item || ''} onChange={e => setDraft(d => ({ ...d, item: e.target.value }))} placeholder="Item" className={addCls} /></td>
+                <td className="px-2 py-1.5"><input type="number" step="0.01" value={draft.amount ?? ''} onWheel={blurOnWheel} onKeyDown={e => { if (e.key === 'Enter') commitDraft(); }} onChange={e => setDraft(d => ({ ...d, amount: e.target.value === '' ? undefined : toNum(e.target.value) }))} placeholder="0,00" className={`${addCls} text-right font-mono`} /></td>
+                <td className="px-2 py-1.5"><input type="text" value={draft.description || ''} onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} placeholder="Descrição" className={addCls} /></td>
+                <td className="px-2 py-1.5"><input type="text" list="exp-banks" value={draft.bank || ''} onChange={e => setDraft(d => ({ ...d, bank: e.target.value }))} placeholder="Banco" className={addCls} /></td>
+                <td className="px-2 py-1.5"><input type="text" list="exp-sources" value={draft.source || ''} onChange={e => setDraft(d => ({ ...d, source: e.target.value }))} placeholder="Destino" className={addCls} /></td>
+                <td className="px-2 py-1.5"><select value={draft.paymentMethod || ''} onChange={e => setDraft(d => ({ ...d, paymentMethod: (e.target.value || undefined) as PaymentMethod | undefined }))} className={`${addCls} cursor-pointer`}><option value="">—</option>{PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}</select></td>
+                <td className="px-2 py-1.5 text-center"><button onClick={commitDraft} title="Adicionar" className="p-1.5 text-emerald-400 hover:text-white hover:bg-emerald-600 rounded-lg transition-colors"><Plus size={16} /></button></td>
+              </tr>
+
+              {pageRows.length === 0 ? (
+                <tr><td colSpan={9} className="px-5 py-12 text-center text-slate-500 text-sm">Nenhum gasto neste recorte. Use a linha acima para adicionar.</td></tr>
+              ) : pageRows.map(e => (
+                <tr key={e.id} className="hover:bg-slate-800/20 transition-colors align-middle">
+                  <td className="px-2 py-1"><InlineDate value={e.date} onCommit={v => onSaveExpense({ ...e, date: v })} /></td>
+                  <td className="px-2 py-1">
+                    <div className="flex items-center gap-1">
+                      {isApostas(e.category) && <Dices size={11} className="text-indigo-400 shrink-0" />}
+                      <InlineText value={e.category} listId="exp-cats" onCommit={v => onSaveExpense({ ...e, category: v })} className={`${cellCls} ${isApostas(e.category) ? 'text-indigo-300' : ''}`} />
+                    </div>
+                  </td>
+                  <td className="px-2 py-1"><InlineText value={e.item} onCommit={v => onSaveExpense({ ...e, item: v || undefined })} /></td>
+                  <td className="px-2 py-1"><InlineNumber value={e.amount} onCommit={v => onSaveExpense({ ...e, amount: v })} className={`${cellCls} ${(Number(e.amount) || 0) < 0 ? 'text-emerald-400' : 'text-slate-100'} font-semibold`} /></td>
+                  <td className="px-2 py-1 min-w-[160px]"><InlineText value={e.description} onCommit={v => onSaveExpense({ ...e, description: v || undefined })} /></td>
+                  <td className="px-2 py-1"><InlineText value={e.bank} listId="exp-banks" onCommit={v => onSaveExpense({ ...e, bank: v || undefined })} /></td>
+                  <td className="px-2 py-1"><InlineText value={e.source} listId="exp-sources" onCommit={v => onSaveExpense({ ...e, source: v || undefined })} /></td>
+                  <td className="px-2 py-1">
+                    <select value={e.paymentMethod || ''} onChange={ev => onSaveExpense({ ...e, paymentMethod: (ev.target.value || undefined) as PaymentMethod | undefined })} className={`${cellCls} cursor-pointer text-xs`}>
+                      <option value="">—</option>{PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-2 py-1 text-center"><button onClick={() => { if (confirm('Excluir este gasto?')) onDeleteExpense(e.id); }} className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors" title="Excluir"><Trash2 size={14} /></button></td>
+                </tr>
               ))}
-              <div className="flex items-center justify-between gap-3 px-5 py-3 bg-slate-950/40">
-                <span className="text-xs font-bold uppercase tracking-wide text-slate-400">Total geral</span>
-                <span className="text-sm font-mono font-bold text-white">{fmtBRL(kpis.total)}</span>
-              </div>
+            </tbody>
+          </table>
+        </div>
+        {/* Rodapé: total + paginação */}
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-slate-800 bg-slate-950/40">
+          <span className="text-sm text-slate-300">Total do recorte: <span className="font-mono font-bold text-white">{fmtBRL(kpis.total)}</span></span>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={curPage === 0} className="p-1.5 bg-slate-900 border border-slate-700 rounded-lg text-slate-300 disabled:opacity-40 hover:bg-slate-800"><ChevronLeft size={16} /></button>
+              <span className="text-xs text-slate-400 font-mono">{curPage + 1} / {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={curPage >= totalPages - 1} className="p-1.5 bg-slate-900 border border-slate-700 rounded-lg text-slate-300 disabled:opacity-40 hover:bg-slate-800"><ChevronRight size={16} /></button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Modal novo/editar gasto */}
-      {modal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={() => setModal(null)}>
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-6 border-b border-slate-800">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <Receipt size={20} className="text-indigo-400" />
-                {modal.id ? 'Editar gasto' : 'Novo gasto'}
-              </h3>
-              <button onClick={() => setModal(null)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-lg transition-colors"><X size={20} /></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-400">Data *</label>
-                  <input type="date" value={(modal.date || '').slice(0, 10)} onChange={e => setModal({ ...modal, date: e.target.value })} onClick={openPicker}
-                    className={`${inputClass} [color-scheme:dark] cursor-pointer`} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-400">Valor (R$) *</label>
-                  <input type="number" step="0.01" autoFocus value={modal.amount ?? ''} placeholder="0,00 (negativo = estorno)" onWheel={blurOnWheel}
-                    onChange={e => setModal({ ...modal, amount: e.target.value === '' ? undefined : toNum(e.target.value) })}
-                    className={`${inputClass} font-mono`} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-400">Categoria *</label>
-                  <input type="text" list="expense-categories" value={modal.category || ''} onChange={e => setModal({ ...modal, category: e.target.value })}
-                    placeholder="Ex.: MERCADO, APOSTAS..." className={inputClass} />
-                  <datalist id="expense-categories">{categoryOptions.map(c => <option key={c} value={c} />)}</datalist>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-400">Item</label>
-                  <input type="text" value={modal.item || ''} onChange={e => setModal({ ...modal, item: e.target.value })}
-                    placeholder="Ex.: GASOLINA, CONTAS..." className={inputClass} />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-400">Descrição</label>
-                <input type="text" value={modal.description || ''} onChange={e => setModal({ ...modal, description: e.target.value })}
-                  placeholder="Detalhe do gasto" className={inputClass} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-400">Razão social <span className="text-slate-500 font-normal">(destino do pagamento)</span></label>
-                <input type="text" list="expense-sources" value={modal.source || ''} onChange={e => setModal({ ...modal, source: e.target.value })}
-                  placeholder="Para quem/onde foi o pagamento" className={inputClass} />
-                <datalist id="expense-sources">{sourceOptions.map(s => <option key={s} value={s} />)}</datalist>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-400 flex items-center gap-1"><Landmark size={12} /> Banco</label>
-                  <input type="text" list="expense-banks" value={modal.bank || ''} onChange={e => setModal({ ...modal, bank: e.target.value })}
-                    placeholder="Escolha ou digite o banco" className={inputClass} />
-                  <datalist id="expense-banks">{bankOptions.map(b => <option key={b} value={b} />)}</datalist>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-400 flex items-center gap-1"><CreditCard size={12} /> Forma de pagamento</label>
-                  <select value={modal.paymentMethod || ''} onChange={e => setModal({ ...modal, paymentMethod: (e.target.value || undefined) as PaymentMethod | undefined })}
-                    className={`${inputClass} cursor-pointer`}>
-                    <option value="">—</option>
-                    {PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="pt-2 flex gap-3">
-                <button onClick={saveFromModal} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
-                  <Save size={18} /> Salvar
-                </button>
-                <button onClick={() => setModal(null)} className="px-6 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors">Cancelar</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <p className="text-xs text-slate-600 text-center">Edite qualquer célula direto na tabela — salva automaticamente. A primeira linha adiciona um novo gasto.</p>
     </div>
   );
 };

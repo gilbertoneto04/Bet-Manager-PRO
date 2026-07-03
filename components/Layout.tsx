@@ -12,20 +12,6 @@ interface LayoutProps {
 
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user, onLogout }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  const mainRef = React.useRef<HTMLElement>(null);
-  const scrollByTab = React.useRef<Record<string, number>>({});
-
-  // Preserva a rolagem de cada aba: ao trocar de aba, volta para onde o usuário estava
-  // em vez de pular para o topo. Cada aba lembra a própria posição.
-  React.useLayoutEffect(() => {
-    const el = mainRef.current;
-    if (el) el.scrollTop = scrollByTab.current[activeTab] ?? 0;
-  }, [activeTab]);
-
-  const handleMainScroll = () => {
-    const el = mainRef.current;
-    if (el) scrollByTab.current[activeTab] = el.scrollTop;
-  };
 
   const NavItem = ({ tab, icon: Icon, label }: { tab: TabView; icon: any; label: string }) => (
     <button
@@ -71,12 +57,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
             isMobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
           }`}
         >
-          <div className="p-6">
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent mb-8 hidden lg:block">
+          <div className="px-6 pt-6 pb-3 shrink-0">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent hidden lg:block">
               Gestão Gilbet
             </h1>
-            
-            <nav className="space-y-2 overflow-y-auto max-h-[calc(100vh-180px)] lg:max-h-[calc(100vh-200px)]">
+          </div>
+
+          <nav className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-2">
               <NavItem tab="DASHBOARD" icon={LayoutDashboard} label="Pendências" />
               <NavItem tab="NEW_REQUEST" icon={PlusCircle} label="Nova Solicitação" />
               <div className="pt-4 pb-2">
@@ -111,10 +98,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
               {user?.role !== 'AGENCIA' && (
                 <NavItem tab="SETTINGS" icon={Settings} label="Configurações" />
               )}
-            </nav>
-          </div>
-          
-          <div className="mt-auto w-full p-6 border-t border-slate-800 bg-slate-900">
+          </nav>
+
+          <div className="shrink-0 w-full p-6 border-t border-slate-800 bg-slate-900">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3 text-slate-400">
                 <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-xs uppercase">
@@ -133,7 +119,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
         </aside>
 
         {/* Main Content */}
-        <main ref={mainRef} onScroll={handleMainScroll} className="flex-1 overflow-y-auto bg-slate-950 relative w-full">
+        <main className="flex-1 overflow-y-auto bg-slate-950 relative w-full scroll-smooth">
           <div className="max-w-[1600px] mx-auto p-4 lg:px-10 lg:py-8 pb-24 lg:pb-8">
             {children}
           </div>

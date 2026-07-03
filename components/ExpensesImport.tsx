@@ -78,15 +78,15 @@ interface ParsedExpense {
   date: string; category: string; item?: string; amount: number; description?: string; source?: string; bank?: string; month: string;
 }
 
-// Converte linhas cruas (layout fixo) em gastos válidos (precisa de DATA + VALOR).
+// Converte linhas cruas (layout fixo) em gastos. Basta ter VALOR numérico;
+// linhas sem DATA ou sem CATEGORIA também entram (data/categoria ficam em branco).
 const rowsToExpenses = (rows: string[][], year: number): ParsedExpense[] => {
   const out: ParsedExpense[] = [];
   rows.forEach((r) => {
     if (/^data$/i.test((r[0] || '').trim())) return;   // cabeçalho
-    const date = toISODate((r[0] || '').trim(), year);
-    if (!date) return;                                 // sem data válida
     const amount = parseNum((r[3] || '').trim());
-    if (Number.isNaN(amount)) return;                  // sem valor numérico
+    if (Number.isNaN(amount)) return;                  // precisa de valor numérico
+    const date = toISODate((r[0] || '').trim(), year); // pode ficar vazio (sem data)
     out.push({
       date,
       category: (r[1] || '').trim(),
@@ -115,6 +115,7 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
   const [error, setError] = useState('');
   const [parsed, setParsed] = useState<ParsedExpense[] | null>(null);
   const [foundMonths, setFoundMonths] = useState<string[]>([]);
+  const [allowDuplicates, setAllowDuplicates] = useState(false);
 
   const reset = () => { setParsed(null); setError(''); setFoundMonths([]); setProgress(''); };
 
@@ -163,7 +164,7 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
   const applyPasted = () => {
     const rows = parseTabular(pasted);
     const p = rowsToExpenses(rows, year);
-    if (p.length === 0) { setError('Conteúdo colado sem linhas válidas (precisa de DATA na 1ª coluna e VALOR na 4ª). Confira também o ano.'); return; }
+    if (p.length === 0) { setError('Conteúdo colado sem linhas válidas (precisa de VALOR numérico na 4ª coluna).'); return; }
     setError(''); setFoundMonths([]); setParsed(p);
   };
 
@@ -179,15 +180,17 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
     const toImport: ParsedExpense[] = [];
     let skipped = 0;
     parsed.forEach(p => {
-      const sig = sigOf(p);
-      if (existingSig.has(sig) || seen.has(sig)) { skipped++; return; }
-      seen.add(sig);
+      if (!allowDuplicates) {
+        const sig = sigOf(p);
+        if (existingSig.has(sig) || seen.has(sig)) { skipped++; return; }
+        seen.add(sig);
+      }
       toImport.push(p);
     });
     let despesas = 0, apostas = 0;
     toImport.forEach(p => { if (isApostas(p.category)) apostas += p.amount; else despesas += p.amount; });
     return { toImport, skipped, despesas, apostas };
-  }, [parsed, existingSig]);
+  }, [parsed, existingSig, allowDuplicates]);
 
   const apply = () => {
     if (plan.toImport.length === 0) { alert('Nada para importar (tudo já existente).'); return; }
@@ -255,6 +258,10 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
                   {foundMonths.length > 0 && (
                     <p className="text-[11px] text-slate-400">Meses encontrados: <span className="text-slate-200">{foundMonths.join(', ')}</span></p>
                   )}
+                  <label className="flex items-start gap-2 text-xs text-slate-300 bg-slate-800/40 border border-slate-700 rounded-lg p-2.5 cursor-pointer">
+                    <input type="checkbox" checked={allowDuplicates} onChange={e => setAllowDuplicates(e.target.checked)} className="accent-indigo-500 w-4 h-4 mt-0.5" />
+                    <span>Importar duplicados <span className="text-slate-500">— traz todas as linhas mesmo que iguais a outra (útil quando linhas idênticas não são de fato duplicatas). Desmarcado, pula gastos já existentes/repetidos.</span></span>
+                  </label>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-center">
                       <p className="text-[11px] text-slate-500">A importar</p>
@@ -281,7 +288,7 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
                         <tbody className="divide-y divide-slate-800/70">
                           {plan.toImport.slice(0, 6).map((p, i) => (
                             <tr key={i}>
-                              <td className="px-2 py-1.5 text-slate-300 font-mono whitespace-nowrap">{p.date}</td>
+                              <td className="px-2 py-1.5 text-slate-300 font-mono whitespace-nowrap">{p.date || '—'}</td>
                               <td className="px-2 py-1.5 text-slate-200 whitespace-nowrap">{p.category || '—'}</td>
                               <td className="px-2 py-1.5 text-slate-400 max-w-[130px] truncate" title={p.item}>{p.item || '—'}</td>
                               <td className={`px-2 py-1.5 text-right font-mono ${p.amount < 0 ? 'text-emerald-400' : 'text-slate-200'}`}>{fmtBRL(p.amount)}</td>
