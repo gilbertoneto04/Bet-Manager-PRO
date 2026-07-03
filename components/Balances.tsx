@@ -122,6 +122,7 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
   const [filterHouse, setFilterHouse] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('ACTIVE');
   const [sortBy, setSortBy] = useState<SortKey>('BALANCE_DESC');
+  const [onlyWithBalance, setOnlyWithBalance] = useState(false);
   const [groupBy, setGroupBy] = useState<'HOUSE' | 'HOLDER'>('HOUSE');
   const [bankModal, setBankModal] = useState<Partial<Bank> | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -161,6 +162,7 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
       if (filterStatus === 'VISIBLE') { if (a.status === 'DELETED') return false; }
       else if (filterStatus !== 'ALL') { if (a.status !== filterStatus) return false; }
       if (filterHouse !== 'ALL' && a.house !== filterHouse) return false;
+      if (onlyWithBalance && ((a.currentBalance || 0) + (a.pendingBalance || 0)) <= 0) return false;
       if (term) {
         return a.name.toLowerCase().includes(term) ||
           a.house.toLowerCase().includes(term) ||
@@ -181,7 +183,7 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
       }
     });
     return list;
-  }, [accounts, search, filterHouse, filterStatus, sortBy, holders]);
+  }, [accounts, search, filterHouse, filterStatus, sortBy, onlyWithBalance, holders]);
 
   // Agrupamento por Casa ou Titular, com subtotal por grupo
   const groups = useMemo(() => {
@@ -330,6 +332,13 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
             {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
+        <button
+          onClick={() => setOnlyWithBalance(v => !v)}
+          title="Mostrar apenas contas com saldo maior que zero"
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${onlyWithBalance ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-slate-200'}`}
+        >
+          <Wallet size={14} /> Apenas com saldo
+        </button>
       </div>
 
       {/* Bancos & Investimentos (primeiro da lista) */}
