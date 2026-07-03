@@ -12,6 +12,20 @@ interface LayoutProps {
 
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user, onLogout }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const mainRef = React.useRef<HTMLElement>(null);
+  const scrollByTab = React.useRef<Record<string, number>>({});
+
+  // Preserva a rolagem de cada aba: ao trocar de aba, volta para onde o usuário estava
+  // em vez de pular para o topo. Cada aba lembra a própria posição.
+  React.useLayoutEffect(() => {
+    const el = mainRef.current;
+    if (el) el.scrollTop = scrollByTab.current[activeTab] ?? 0;
+  }, [activeTab]);
+
+  const handleMainScroll = () => {
+    const el = mainRef.current;
+    if (el) scrollByTab.current[activeTab] = el.scrollTop;
+  };
 
   const NavItem = ({ tab, icon: Icon, label }: { tab: TabView; icon: any; label: string }) => (
     <button
@@ -119,7 +133,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-y-auto bg-slate-950 relative w-full scroll-smooth">
+        <main ref={mainRef} onScroll={handleMainScroll} className="flex-1 overflow-y-auto bg-slate-950 relative w-full">
           <div className="max-w-[1600px] mx-auto p-4 lg:px-10 lg:py-8 pb-24 lg:pb-8">
             {children}
           </div>

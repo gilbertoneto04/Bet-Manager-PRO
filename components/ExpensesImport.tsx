@@ -2,12 +2,13 @@
 // A versão final do app NÃO terá importador. Para remover por completo:
 //   1) apague este arquivo (ExpensesImport.tsx);
 //   2) no Expenses.tsx, remova o import e a linha <ExpensesImport ... /> (marcados com "TEMP").
-// Busca ao vivo cada aba "Gastos - <Mês>" (layout fixo: DATA|CATEGORIA|ITEM|VALOR|DESCRIÇÃO|RAZÃO SOCIAL).
+// Busca ao vivo cada aba "Gastos - <Mês>". Layout fixo das colunas:
+//   0=DATA (dd/mm, sem ano) · 1=CATEGORIA · 2=ITEM · 3=VALOR · 4=DESCRIÇÃO · 5=BANCO/conta (MP/NU/...) · 6=RAZÃO SOCIAL (destino)
 import React, { useMemo, useState } from 'react';
 import { Expense } from '../types';
 import { fmtBRL } from '../finance';
 import { EXPENSE_APOSTAS_CATEGORY, MONTH_NAMES } from '../constants';
-import { Upload, X, Check, Link2, Loader2, AlertTriangle, ClipboardPaste } from 'lucide-react';
+import { Upload, X, Check, Link2, Loader2, AlertTriangle, ClipboardPaste, Calendar } from 'lucide-react';
 
 interface ExpensesImportProps {
   expenses: Expense[];
@@ -30,15 +31,18 @@ const parseNum = (raw: string | number): number => {
   return isNaN(n) ? NaN : n;
 };
 
-const toISODate = (raw: string): string => {
+// Aceita dd/mm/aaaa, aaaa-mm-dd, Date(a,m,d) e dd/mm (sem ano → usa `year`).
+const toISODate = (raw: string, year: number): string => {
   const s = String(raw || '').trim();
   if (!s) return '';
-  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);      // dd/mm/aaaa
   if (m) { let [, d, mo, y] = m; if (y.length === 2) y = '20' + y; return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`; }
-  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
+  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);            // aaaa-mm-dd
   if (m) { const [, y, mo, d] = m; return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`; }
-  m = s.match(/Date\((\d+),(\d+),(\d+)/);
+  m = s.match(/Date\((\d+),(\d+),(\d+)/);                            // Date(a,m,d)
   if (m) { const y = +m[1], mo = +m[2] + 1, d = +m[3]; return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }
+  m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})$/);                        // dd/mm (sem ano)
+  if (m) { const [, d, mo] = m; return `${year}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`; }
   return '';
 };
 
@@ -63,9 +67,7 @@ const parseCSV = (text: string): string[][] => {
 
 const parseTabular = (text: string): string[][] => {
   const firstLine = text.split(/\r?\n/)[0] || '';
-  if (firstLine.includes('\t') && !firstLine.includes(',')) {
-    return text.split(/\r?\n/).map(l => l.split('\t'));
-  }
+  if (firstLine.includes('\t')) return text.split(/\r?\n/).map(l => l.split('\t'));
   return parseCSV(text);
 };
 
@@ -73,37 +75,39 @@ const parseSheetId = (url: string): string =>
   (url.match(/\/spreadsheets\/d\/([a-zA-Z0-9\-_]+)/) || [])[1] || '';
 
 interface ParsedExpense {
-  date: string; category: string; item?: string; amount: number; description?: string; source?: string; month: string;
+  date: string; category: string; item?: string; amount: number; description?: string; source?: string; bank?: string; month: string;
 }
 
-// Converte linhas cruas (layout fixo A..F) em gastos válidos (precisa de DATA + VALOR).
-const rowsToExpenses = (rows: string[][]): ParsedExpense[] => {
+// Converte linhas cruas (layout fixo) em gastos válidos (precisa de DATA + VALOR).
+const rowsToExpenses = (rows: string[][], year: number): ParsedExpense[] => {
   const out: ParsedExpense[] = [];
-  rows.forEach((r, idx) => {
-    const date = toISODate((r[0] || '').trim());
-    if (!date) return;                              // pula cabeçalho e linhas sem data
-    if (idx === 0 && /data/i.test(r[0] || '')) return;
+  rows.forEach((r) => {
+    if (/^data$/i.test((r[0] || '').trim())) return;   // cabeçalho
+    const date = toISODate((r[0] || '').trim(), year);
+    if (!date) return;                                 // sem data válida
     const amount = parseNum((r[3] || '').trim());
-    if (Number.isNaN(amount)) return;               // precisa de valor numérico
+    if (Number.isNaN(amount)) return;                  // sem valor numérico
     out.push({
       date,
       category: (r[1] || '').trim(),
       item: (r[2] || '').trim() || undefined,
       amount,
       description: (r[4] || '').trim() || undefined,
-      source: (r[5] || '').trim() || undefined,
+      bank: (r[5] || '').trim() || undefined,          // conta que pagou (MP/NU/NUPJ/SC)
+      source: (r[6] || '').trim() || undefined,        // RAZÃO SOCIAL = destino do pagamento
       month: date.slice(0, 7),
     });
   });
   return out;
 };
 
-const sigOf = (p: { date: string; category: string; item?: string; amount: number; source?: string }) =>
-  `${p.date}|${(p.category || '').toLowerCase()}|${(p.item || '').toLowerCase()}|${Math.round(p.amount * 100)}|${(p.source || '').toLowerCase()}`;
+const sigOf = (p: { date: string; category: string; item?: string; amount: number; source?: string; bank?: string }) =>
+  `${p.date}|${(p.category || '').toLowerCase()}|${(p.item || '').toLowerCase()}|${Math.round(p.amount * 100)}|${(p.source || '').toLowerCase()}|${(p.bank || '').toLowerCase()}`;
 
 export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSaveExpense }) => {
   const [open, setOpen] = useState(false);
   const [link, setLink] = useState('');
+  const [year, setYear] = useState<number>(new Date().getFullYear());
   const [pasted, setPasted] = useState('');
   const [showPaste, setShowPaste] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -120,7 +124,7 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
       const res = await fetch(url);
       if (!res.ok) return null;
       const text = await res.text();
-      if (/setResponse\(|status['"]?:\s*['"]?error|Sorry, unable|Invalid|<html/i.test(text.slice(0, 300))) return null;
+      if (/^\s*<!DOCTYPE|<html|google\.visualization\.Query\.setResponse|Sorry, unable|Invalid query/i.test(text.slice(0, 300))) return null;
       return parseCSV(text);
     } catch { return null; }
   };
@@ -136,13 +140,13 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
         setProgress(`Buscando “Gastos - ${mes}”...`);
         const rows = await fetchTab(id, `Gastos - ${mes}`);
         if (rows && rows.length) {
-          const parsedRows = rowsToExpenses(rows);
-          if (parsedRows.length) { all.push(...parsedRows); found.push(mes); }
+          const p = rowsToExpenses(rows, year);
+          if (p.length) { all.push(...p); found.push(mes); }
         }
       }
       setProgress('');
       if (all.length === 0) {
-        setError('Não encontrei abas “Gastos - <Mês>” com dados. Confirme que a planilha está pública ("Qualquer pessoa com o link pode ver") ou use a opção de colar abaixo.');
+        setError('Não encontrei abas “Gastos - <Mês>” com linhas válidas. Confirme que a planilha está pública ("Qualquer pessoa com o link pode ver") e o ano selecionado, ou use a opção de colar abaixo.');
         setShowPaste(true);
         return;
       }
@@ -158,14 +162,14 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
 
   const applyPasted = () => {
     const rows = parseTabular(pasted);
-    const p = rowsToExpenses(rows);
-    if (p.length === 0) { setError('Conteúdo colado vazio ou sem linhas válidas (precisa de DATA na 1ª coluna e VALOR na 4ª).'); return; }
+    const p = rowsToExpenses(rows, year);
+    if (p.length === 0) { setError('Conteúdo colado sem linhas válidas (precisa de DATA na 1ª coluna e VALOR na 4ª). Confira também o ano.'); return; }
     setError(''); setFoundMonths([]); setParsed(p);
   };
 
   const existingSig = useMemo(() => {
     const s = new Set<string>();
-    expenses.forEach(e => s.add(sigOf({ date: (e.date || '').slice(0, 10), category: e.category, item: e.item, amount: Number(e.amount) || 0, source: e.source })));
+    expenses.forEach(e => s.add(sigOf({ date: (e.date || '').slice(0, 10), category: e.category, item: e.item, amount: Number(e.amount) || 0, source: e.source, bank: e.bank })));
     return s;
   }, [expenses]);
 
@@ -192,7 +196,7 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
     plan.toImport.forEach(p => {
       onSaveExpense({
         id: '', date: p.date, category: p.category, item: p.item, amount: p.amount,
-        description: p.description, source: p.source, createdAt: now,
+        description: p.description, source: p.source, bank: p.bank, createdAt: now,
       } as Expense);
     });
     alert(`Importados ${plan.toImport.length} gasto(s).${plan.skipped ? ` (${plan.skipped} já existiam/duplicados e foram pulados.)` : ''}`);
@@ -220,20 +224,27 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
 
             <div className="p-5 space-y-4 overflow-y-auto">
               <div className="space-y-2">
-                <label className="text-xs font-medium text-slate-400 flex items-center gap-1.5"><Link2 size={13} /> Link da planilha CONTROLE (Google Sheets)</label>
-                <div className="flex gap-2">
-                  <input type="url" value={link} onChange={e => setLink(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/.../edit" className={inputCls} />
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex-1 min-w-[240px] space-y-1">
+                    <label className="text-xs font-medium text-slate-400 flex items-center gap-1.5"><Link2 size={13} /> Link da planilha CONTROLE</label>
+                    <input type="url" value={link} onChange={e => setLink(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/.../edit" className={inputCls} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-400 flex items-center gap-1.5"><Calendar size={13} /> Ano</label>
+                    <input type="number" value={year} onChange={e => setYear(Number(e.target.value) || new Date().getFullYear())} onWheel={e => e.currentTarget.blur()}
+                      className={`${inputCls} w-24 font-mono`} />
+                  </div>
                   <button onClick={fetchFromLink} disabled={loading || !link.trim()} className="shrink-0 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
                     {loading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} Buscar
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-500">Lê automaticamente as abas <span className="text-slate-300">“Gastos - Janeiro”…“Gastos - Dezembro”</span>. A planilha precisa estar como <span className="text-slate-300">"Qualquer pessoa com o link pode ver"</span>.</p>
+                <p className="text-[11px] text-slate-500">Lê as abas <span className="text-slate-300">“Gastos - Janeiro”…“Gastos - Dezembro”</span>. As datas na planilha são dd/mm (sem ano) — por isso o campo <span className="text-slate-300">Ano</span>. A planilha precisa estar como <span className="text-slate-300">"Qualquer pessoa com o link pode ver"</span>.</p>
                 {loading && progress && <p className="text-[11px] text-indigo-300 flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> {progress}</p>}
                 <button onClick={() => setShowPaste(s => !s)} className="text-[11px] text-indigo-300 hover:text-indigo-200 flex items-center gap-1"><ClipboardPaste size={12} /> {showPaste ? 'Esconder' : 'Ou colar uma aba manualmente'}</button>
                 {showPaste && (
                   <div className="space-y-2">
-                    <textarea value={pasted} onChange={e => setPasted(e.target.value)} rows={4} placeholder="Cole as linhas de uma aba Gastos (DATA, CATEGORIA, ITEM, VALOR, DESCRIÇÃO, RAZÃO SOCIAL)..." className={`${inputCls} font-mono text-xs`} />
-                    <button onClick={applyPasted} disabled={!pasted.trim()} className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-semibold">Usar conteúdo colado</button>
+                    <textarea value={pasted} onChange={e => setPasted(e.target.value)} rows={4} placeholder="Cole as linhas de uma aba Gastos (DATA, CATEGORIA, ITEM, VALOR, DESCRIÇÃO, BANCO, RAZÃO SOCIAL)..." className={`${inputCls} font-mono text-xs`} />
+                    <button onClick={applyPasted} disabled={!pasted.trim()} className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-semibold">Usar conteúdo colado (ano {year})</button>
                   </div>
                 )}
                 {error && <div className="flex items-start gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5"><AlertTriangle size={14} className="shrink-0 mt-0.5" /><span>{error}</span></div>}
@@ -265,15 +276,16 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
                     <div className="overflow-x-auto rounded-xl border border-slate-800">
                       <table className="w-full text-xs">
                         <thead className="bg-slate-950 text-slate-500 uppercase">
-                          <tr><th className="px-2 py-1.5 text-left">Data</th><th className="px-2 py-1.5 text-left">Categoria</th><th className="px-2 py-1.5 text-left">Item</th><th className="px-2 py-1.5 text-right">Valor</th><th className="px-2 py-1.5 text-left">Razão</th></tr>
+                          <tr><th className="px-2 py-1.5 text-left">Data</th><th className="px-2 py-1.5 text-left">Categoria</th><th className="px-2 py-1.5 text-left">Item</th><th className="px-2 py-1.5 text-right">Valor</th><th className="px-2 py-1.5 text-left">Banco</th><th className="px-2 py-1.5 text-left">Razão (destino)</th></tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/70">
                           {plan.toImport.slice(0, 6).map((p, i) => (
                             <tr key={i}>
                               <td className="px-2 py-1.5 text-slate-300 font-mono whitespace-nowrap">{p.date}</td>
                               <td className="px-2 py-1.5 text-slate-200 whitespace-nowrap">{p.category || '—'}</td>
-                              <td className="px-2 py-1.5 text-slate-400 max-w-[140px] truncate" title={p.item}>{p.item || '—'}</td>
+                              <td className="px-2 py-1.5 text-slate-400 max-w-[130px] truncate" title={p.item}>{p.item || '—'}</td>
                               <td className={`px-2 py-1.5 text-right font-mono ${p.amount < 0 ? 'text-emerald-400' : 'text-slate-200'}`}>{fmtBRL(p.amount)}</td>
+                              <td className="px-2 py-1.5 text-slate-400 whitespace-nowrap">{p.bank || '—'}</td>
                               <td className="px-2 py-1.5 text-slate-400 whitespace-nowrap">{p.source || '—'}</td>
                             </tr>
                           ))}
@@ -281,7 +293,7 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
                       </table>
                     </div>
                   </div>
-                  <p className="text-[11px] text-slate-500">Rodar de novo é seguro: gastos idênticos (data + categoria + item + valor + razão) já importados são pulados.</p>
+                  <p className="text-[11px] text-slate-500">Rodar de novo é seguro: gastos idênticos (data + categoria + item + valor + destino + banco) já importados são pulados.</p>
                 </>
               )}
             </div>
