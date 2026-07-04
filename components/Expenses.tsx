@@ -1,13 +1,13 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Expense, Bank, PaymentMethod } from '../types';
 import { fmtBRL } from '../finance';
 import { EXPENSE_APOSTAS_CATEGORY, PAYMENT_METHODS, MONTH_NAMES } from '../constants';
 import { ExpensesImport } from './ExpensesImport'; // TEMP: importador do Sheets — remover na versão final
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell, LabelList,
 } from 'recharts';
 import {
-  Wallet, Dices, Sigma, ListChecks, Search, Filter, Plus, Trash2,
+  Wallet, Dices, Sigma, ListChecks, Search, Filter, Plus, Trash2, Pencil,
   ChevronLeft, ChevronRight, CalendarDays, ArrowDownUp, BarChart3, ChevronDown, ChevronUp, X,
 } from 'lucide-react';
 
@@ -16,6 +16,8 @@ interface ExpensesProps {
   banks: Bank[];
   onSaveExpense: (e: Expense) => void;
   onDeleteExpense: (id: string) => void;
+  onDeleteManyExpenses: (ids: string[]) => void;
+  onUpdateManyExpenses: (updates: { id: string; data: Partial<Expense> }[]) => void;
 }
 
 const toNum = (s: string | number) => { const n = parseFloat(String(s).replace(',', '.')); return isNaN(n) ? 0 : n; };
@@ -52,16 +54,32 @@ const InlineText: React.FC<{ value?: string; onCommit: (v: string) => void; list
       className={className ?? cellCls} />
   );
 };
-const InlineNumber: React.FC<{ value?: number; onCommit: (v: number) => void; className?: string }> = ({ value, onCommit, className }) => {
-  const [draft, setDraft] = useState<string | null>(null);
+
+// Valor em dinheiro: exibe SEMPRE formatado (R$ 0,00); ao clicar vira input numérico.
+const InlineMoney: React.FC<{ value?: number; onCommit: (v: number) => void }> = ({ value, onCommit }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const v = Number(value) || 0;
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setDraft(value != null ? String(value) : ''); setEditing(true); }}
+        title="Clique para editar"
+        className={`w-full text-right font-mono font-semibold px-2 py-1 rounded border border-transparent hover:border-slate-700 transition-colors whitespace-nowrap ${v < 0 ? 'text-emerald-400' : 'text-slate-100'}`}
+      >
+        {fmtBRL(v)}
+      </button>
+    );
+  }
   return (
-    <input type="number" step="0.01" value={draft ?? (value != null ? String(value) : '')} placeholder="0,00" onWheel={blurOnWheel}
+    <input type="number" step="0.01" autoFocus value={draft} onWheel={blurOnWheel}
       onChange={e => setDraft(e.target.value)}
-      onBlur={() => { if (draft !== null) { const v = toNum(draft); if (v !== (value ?? 0)) onCommit(v); setDraft(null); } }}
-      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-      className={`${className ?? cellCls} text-right font-mono`} />
+      onBlur={() => { const nv = toNum(draft); setEditing(false); if (nv !== v) onCommit(nv); }}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(false); }}
+      className={`${cellCls} text-right font-mono`} />
   );
 };
+
 const InlineDate: React.FC<{ value?: string; onCommit: (v: string) => void }> = ({ value, onCommit }) => (
   <input type="date" value={(value || '').slice(0, 10)} onClick={openPicker}
     onChange={e => { if (e.target.value !== (value || '').slice(0, 10)) onCommit(e.target.value); }}
@@ -70,7 +88,20 @@ const InlineDate: React.FC<{ value?: string; onCommit: (v: string) => void }> = 
 
 const CHART_COLORS = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#a78bfa', '#f87171', '#2dd4bf', '#e879f9', '#4ade80', '#fb923c', '#38bdf8'];
 
-export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpense, onDeleteExpense }) => {
+// Estilo compartilhado dos tooltips dos gráficos (fundo escuro + texto claro e legível).
+const TOOLTIP_STYLES = {
+  contentStyle: { background: '#0f172a', border: '1px solid #334155', borderRadius: 10, fontSize: 12, boxShadow: '0 8px 24px rgba(0,0,0,.55)', padding: '8px 12px' },
+  labelStyle: { color: '#f1f5f9', fontWeight: 700, marginBottom: 4 },
+  itemStyle: { color: '#c7d2fe', fontWeight: 600 },
+} as const;
+
+const fmtAxis = (v: number) => {
+  const a = Math.abs(v);
+  if (a >= 1000) return `R$ ${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`;
+  return `R$ ${Math.round(v)}`;
+};
+
+export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpense, onDeleteExpense, onDeleteManyExpenses, onUpdateManyExpenses }) => {
   // Mês inicial: o do lançamento mais recente; senão, o atual.
   const latestMonth = useMemo(() => {
     const months = expenses.map(e => monthOf(e.date)).filter(Boolean).sort();
@@ -90,7 +121,20 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
   const [draft, setDraft] = useState<Partial<Expense>>({ date: todayISO(), paymentMethod: 'PIX' });
   const [showAnalysis, setShowAnalysis] = useState(true);
 
+  // Seleção de linhas (edição rápida / exclusão em massa)
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulk, setBulk] = useState<{ date?: string; category?: string; bank?: string; source?: string; paymentMethod?: PaymentMethod | '' }>({});
+  const headerChk = useRef<HTMLInputElement>(null);
+
   useEffect(() => { setMonth(latestMonth); }, [latestMonth]);
+  // Remove da seleção ids que deixaram de existir (ex.: apagados).
+  useEffect(() => {
+    setSelected(prev => {
+      const valid = new Set(expenses.map(e => e.id));
+      const next = new Set([...prev].filter(id => valid.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [expenses]);
 
   const usingDateRange = !!(dateFrom || dateTo);
 
@@ -144,6 +188,31 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
   const rowStart = filtered.length === 0 ? 0 : (pageSize === Infinity ? 1 : curPage * pageSize + 1);
   const rowEnd = pageSize === Infinity ? filtered.length : Math.min(filtered.length, curPage * pageSize + pageSize);
 
+  // --- Seleção ---
+  const allSelected = filtered.length > 0 && filtered.every(e => selected.has(e.id));
+  useEffect(() => { if (headerChk.current) headerChk.current.indeterminate = selected.size > 0 && !allSelected; }, [selected, allSelected]);
+  const toggleSel = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(filtered.map(e => e.id)));
+
+  const applyBulk = () => {
+    const data: Partial<Expense> = {};
+    if (bulk.date) data.date = bulk.date;
+    if (bulk.category && bulk.category.trim()) data.category = bulk.category.trim();
+    if (bulk.bank && bulk.bank.trim()) data.bank = bulk.bank.trim();
+    if (bulk.source && bulk.source.trim()) data.source = bulk.source.trim();
+    if (bulk.paymentMethod) data.paymentMethod = bulk.paymentMethod as PaymentMethod;
+    if (Object.keys(data).length === 0) { alert('Preencha ao menos um campo para aplicar aos selecionados.'); return; }
+    if (!confirm(`Aplicar as alterações a ${selected.size} gasto(s)?`)) return;
+    onUpdateManyExpenses([...selected].map(id => ({ id, data })));
+    setBulk({}); setSelected(new Set());
+  };
+
+  const deleteBulk = () => {
+    if (!confirm(`Excluir ${selected.size} gasto(s)? Esta ação não pode ser desfeita.`)) return;
+    onDeleteManyExpenses([...selected]);
+    setSelected(new Set());
+  };
+
   const commitDraft = () => {
     const category = (draft.category || '').trim();
     if (draft.amount === undefined || Number.isNaN(Number(draft.amount))) { alert('Informe o valor do novo gasto.'); return; }
@@ -178,15 +247,20 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
     analysisRows.forEach(e => { const k = (e.category || '').trim() || 'Sem categoria'; m.set(k, (m.get(k) || 0) + (Number(e.amount) || 0)); });
     return Array.from(m.entries()).map(([key, total]) => ({ key, total })).sort((a, b) => b.total - a.total);
   }, [analysisRows]);
+  // Ordena pelo yyyy-mm cru ANTES de virar rótulo (ordem cronológica correta).
   const analysisByMonth = useMemo(() => {
     const m = new Map<string, number>();
     analysisRows.forEach(e => { const k = monthOf(e.date); m.set(k, (m.get(k) || 0) + (Number(e.amount) || 0)); });
-    return Array.from(m.entries()).map(([key, total]) => ({ key: monthLabel(key), total })).sort((a, b) => a.key.localeCompare(b.key));
+    return Array.from(m.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([k, total]) => ({ key: k ? monthLabel(k) : 'Sem data', total }));
   }, [analysisRows]);
+  const catTotalAbs = useMemo(() => analysisByCategory.reduce((s, c) => s + Math.abs(c.total), 0), [analysisByCategory]);
 
   const selCls = 'bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none';
   const dateCls = `${selCls} [color-scheme:dark] cursor-pointer`;
   const addCls = 'w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-white focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none';
+  const bulkCls = 'bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:ring-1 focus:ring-indigo-500 outline-none';
 
   const SummaryCard = ({ icon: Icon, label, value, accent, sub }: { icon: any; label: string; value: string; accent: string; sub?: string }) => (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center gap-3">
@@ -195,7 +269,16 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
     </div>
   );
   const Chip = ({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) => (
-    <button onClick={onClick} className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${on ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-slate-200'}`}>{label}</button>
+    <button onClick={onClick} className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${on ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}>{label}</button>
+  );
+  const FilterBox = ({ title, count, onClear, children }: { title: string; count: number; onClear: () => void; children: React.ReactNode }) => (
+    <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 min-w-0">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">{title}{count > 0 && <span className="ml-1.5 text-indigo-400">({count})</span>}</p>
+        {count > 0 && <button onClick={onClear} className="text-[10px] text-indigo-300 hover:text-indigo-200 font-medium">limpar</button>}
+      </div>
+      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">{children}</div>
+    </div>
   );
 
   return (
@@ -242,61 +325,77 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
       {/* --- Painel de Análise / Gráficos (filtros próprios) --- */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
         <button onClick={() => setShowAnalysis(v => !v)} className="w-full flex items-center justify-between gap-3 px-5 py-3 bg-slate-950/50 hover:bg-slate-900/80 transition-colors">
-          <div className="flex items-center gap-2"><BarChart3 size={18} className="text-emerald-400" /><h3 className="text-sm font-bold text-white">Análise por gráficos</h3><span className="text-xs text-slate-500">filtros independentes dos lançamentos</span></div>
+          <div className="flex items-center gap-2"><BarChart3 size={18} className="text-emerald-400" /><h3 className="text-sm font-bold text-white">Análise por gráficos</h3><span className="text-xs text-slate-500 hidden sm:inline">filtros independentes dos lançamentos</span></div>
           {showAnalysis ? <ChevronUp size={18} className="text-slate-500" /> : <ChevronDown size={18} className="text-slate-500" />}
         </button>
         {showAnalysis && (
           <div className="p-5 space-y-4 border-t border-slate-800">
-            {/* filtros de análise */}
-            <div className="space-y-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mb-1.5">Categorias {aCats.size > 0 && <button onClick={() => setACats(new Set())} className="ml-1 text-indigo-300 lowercase">limpar</button>}</p>
-                <div className="flex flex-wrap gap-1.5">{categoryOptions.length === 0 ? <span className="text-xs text-slate-600">nenhuma ainda</span> : categoryOptions.map(c => <Chip key={c} on={aCats.has(c)} label={c} onClick={() => toggle(aCats, c, setACats)} />)}</div>
-              </div>
-              <div>
-                <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mb-1.5">Meses {aMonths.size > 0 && <button onClick={() => setAMonths(new Set())} className="ml-1 text-indigo-300 lowercase">limpar</button>}</p>
-                <div className="flex flex-wrap gap-1.5">{monthsInData.length === 0 ? <span className="text-xs text-slate-600">nenhum ainda</span> : monthsInData.map(m => <Chip key={m} on={aMonths.has(m)} label={monthLabel(m)} onClick={() => toggle(aMonths, m, setAMonths)} />)}</div>
-              </div>
-              {bankOptions.length > 0 && (
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold mb-1.5">Bancos {aBanks.size > 0 && <button onClick={() => setABanks(new Set())} className="ml-1 text-indigo-300 lowercase">limpar</button>}</p>
-                  <div className="flex flex-wrap gap-1.5">{bankOptions.map(b => <Chip key={b} on={aBanks.has(b)} label={b} onClick={() => toggle(aBanks, b, setABanks)} />)}</div>
-                </div>
-              )}
+            {/* filtros de análise em caixas organizadas */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <FilterBox title="Categorias" count={aCats.size} onClear={() => setACats(new Set())}>
+                {categoryOptions.length === 0 ? <span className="text-xs text-slate-600">nenhuma ainda</span> : categoryOptions.map(c => <Chip key={c} on={aCats.has(c)} label={c} onClick={() => toggle(aCats, c, setACats)} />)}
+              </FilterBox>
+              <FilterBox title="Meses" count={aMonths.size} onClear={() => setAMonths(new Set())}>
+                {monthsInData.length === 0 ? <span className="text-xs text-slate-600">nenhum ainda</span> : monthsInData.map(m => <Chip key={m} on={aMonths.has(m)} label={monthLabel(m)} onClick={() => toggle(aMonths, m, setAMonths)} />)}
+              </FilterBox>
+              <FilterBox title="Bancos" count={aBanks.size} onClear={() => setABanks(new Set())}>
+                {bankOptions.length === 0 ? <span className="text-xs text-slate-600">nenhum ainda</span> : bankOptions.map(b => <Chip key={b} on={aBanks.has(b)} label={b} onClick={() => toggle(aBanks, b, setABanks)} />)}
+              </FilterBox>
             </div>
+
             <div className="flex items-center gap-3 flex-wrap">
               <div className="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-2"><span className="text-[11px] text-slate-500 uppercase mr-2">Total filtrado</span><span className="text-lg font-bold text-white font-mono">{fmtBRL(analysisTotal)}</span></div>
-              <span className="text-xs text-slate-500">{analysisRows.length} lançamento(s) · {aCats.size || 'todas'} categoria(s) · {aMonths.size || 'todos'} mês(es)</span>
+              <span className="text-xs text-slate-500">{analysisRows.length} lançamento(s) · {aCats.size || 'todas'} categoria(s) · {aMonths.size || 'todos'} mês(es) · {aBanks.size || 'todos'} banco(s)</span>
             </div>
+
             {/* gráficos */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3">
-                <p className="text-xs font-semibold text-slate-400 mb-2">Por categoria</p>
-                {analysisByCategory.length === 0 ? <p className="text-xs text-slate-600 py-8 text-center">Sem dados.</p> : (
-                  <ResponsiveContainer width="100%" height={Math.max(160, analysisByCategory.length * 34)}>
-                    <BarChart data={analysisByCategory} layout="vertical" margin={{ left: 8, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-                      <XAxis type="number" tickFormatter={v => `R$${Math.round(v)}`} stroke="#64748b" fontSize={11} />
-                      <YAxis type="category" dataKey="key" width={90} stroke="#94a3b8" fontSize={11} />
-                      <Tooltip formatter={(v: any) => fmtBRL(Number(v))} contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} cursor={{ fill: '#1e293b55' }} />
-                      <Bar dataKey="total" radius={[0, 4, 4, 0]}>{analysisByCategory.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}</Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
+              <div className="bg-slate-950/40 border border-slate-800 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800/70">
+                  <p className="text-xs font-bold text-slate-300 uppercase tracking-wide">Por categoria</p>
+                  <span className="text-xs font-mono text-slate-500">{analysisByCategory.length} categoria(s)</span>
+                </div>
+                <div className="p-3">
+                  {analysisByCategory.length === 0 ? <p className="text-xs text-slate-600 py-10 text-center">Sem dados no recorte atual.</p> : (
+                    <ResponsiveContainer width="100%" height={Math.max(180, analysisByCategory.length * 34)}>
+                      <BarChart data={analysisByCategory} layout="vertical" margin={{ left: 8, right: 76, top: 4, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                        <XAxis type="number" tickFormatter={fmtAxis} stroke="#475569" fontSize={11} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="key" width={100} stroke="#94a3b8" fontSize={11} axisLine={false} tickLine={false} />
+                        <Tooltip
+                          {...TOOLTIP_STYLES}
+                          cursor={{ fill: '#33415533' }}
+                          formatter={(v: any) => { const n = Number(v); const pct = catTotalAbs > 0 ? ` · ${(Math.abs(n) / catTotalAbs * 100).toFixed(1)}%` : ''; return [`${fmtBRL(n)}${pct}`, 'Total']; }}
+                        />
+                        <Bar dataKey="total" name="Total" radius={[0, 5, 5, 0]} maxBarSize={22}>
+                          {analysisByCategory.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                          <LabelList dataKey="total" position="right" formatter={(v: any) => fmtBRL(Number(v))} fill="#94a3b8" fontSize={10} />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
               </div>
-              <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3">
-                <p className="text-xs font-semibold text-slate-400 mb-2">Por mês</p>
-                {analysisByMonth.length === 0 ? <p className="text-xs text-slate-600 py-8 text-center">Sem dados.</p> : (
-                  <ResponsiveContainer width="100%" height={Math.max(160, analysisByCategory.length * 34)}>
-                    <BarChart data={analysisByMonth} margin={{ left: 8, right: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                      <XAxis dataKey="key" stroke="#94a3b8" fontSize={11} />
-                      <YAxis tickFormatter={v => `R$${Math.round(v)}`} stroke="#64748b" fontSize={11} width={54} />
-                      <Tooltip formatter={(v: any) => fmtBRL(Number(v))} contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#e2e8f0' }} cursor={{ fill: '#1e293b55' }} />
-                      <Bar dataKey="total" fill="#818cf8" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
+              <div className="bg-slate-950/40 border border-slate-800 rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800/70">
+                  <p className="text-xs font-bold text-slate-300 uppercase tracking-wide">Por mês</p>
+                  <span className="text-xs font-mono text-slate-500">{analysisByMonth.length} mês(es)</span>
+                </div>
+                <div className="p-3">
+                  {analysisByMonth.length === 0 ? <p className="text-xs text-slate-600 py-10 text-center">Sem dados no recorte atual.</p> : (
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={analysisByMonth} margin={{ left: 8, right: 8, top: 16, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                        <XAxis dataKey="key" stroke="#94a3b8" fontSize={11} axisLine={false} tickLine={false} />
+                        <YAxis tickFormatter={fmtAxis} stroke="#475569" fontSize={11} width={58} axisLine={false} tickLine={false} />
+                        <Tooltip {...TOOLTIP_STYLES} cursor={{ fill: '#33415533' }} formatter={(v: any) => [fmtBRL(Number(v)), 'Total']} />
+                        <Bar dataKey="total" name="Total" fill="#818cf8" radius={[5, 5, 0, 0]} maxBarSize={48}>
+                          <LabelList dataKey="total" position="top" formatter={(v: any) => fmtBRL(Number(v))} fill="#94a3b8" fontSize={10} />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -334,12 +433,35 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
         <span className="text-xs text-slate-500 font-mono">{filtered.length === 0 ? 'nenhum lançamento' : `${rowStart}–${rowEnd} de ${filtered.length}`}</span>
       </div>
 
+      {/* --- Barra de seleção (edição rápida / exclusão em massa) --- */}
+      {selected.size > 0 && (
+        <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <span className="text-sm font-semibold text-indigo-200 flex items-center gap-2"><Pencil size={14} /> {selected.size} selecionado(s) — edição rápida</span>
+            <div className="flex items-center gap-2">
+              <button onClick={deleteBulk} className="flex items-center gap-1.5 bg-red-600/80 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"><Trash2 size={13} /> Excluir selecionados</button>
+              <button onClick={() => { setSelected(new Set()); setBulk({}); }} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg" title="Limpar seleção"><X size={15} /></button>
+            </div>
+          </div>
+          <div className="flex items-end gap-2 flex-wrap">
+            <div><label className="block text-[10px] text-slate-500 uppercase mb-0.5">Data</label><input type="date" value={bulk.date || ''} onChange={e => setBulk(b => ({ ...b, date: e.target.value }))} onClick={openPicker} className={`${bulkCls} [color-scheme:dark] cursor-pointer`} /></div>
+            <div><label className="block text-[10px] text-slate-500 uppercase mb-0.5">Categoria</label><input type="text" list="exp-cats" value={bulk.category || ''} onChange={e => setBulk(b => ({ ...b, category: e.target.value }))} placeholder="—" className={`${bulkCls} w-32`} /></div>
+            <div><label className="block text-[10px] text-slate-500 uppercase mb-0.5">Banco</label><input type="text" list="exp-banks" value={bulk.bank || ''} onChange={e => setBulk(b => ({ ...b, bank: e.target.value }))} placeholder="—" className={`${bulkCls} w-28`} /></div>
+            <div><label className="block text-[10px] text-slate-500 uppercase mb-0.5">Razão social</label><input type="text" list="exp-sources" value={bulk.source || ''} onChange={e => setBulk(b => ({ ...b, source: e.target.value }))} placeholder="—" className={`${bulkCls} w-32`} /></div>
+            <div><label className="block text-[10px] text-slate-500 uppercase mb-0.5">Pgto</label><select value={bulk.paymentMethod || ''} onChange={e => setBulk(b => ({ ...b, paymentMethod: (e.target.value || '') as PaymentMethod | '' }))} className={`${bulkCls} cursor-pointer`}><option value="">—</option>{PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
+            <button onClick={applyBulk} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors">Aplicar aos selecionados</button>
+            <span className="text-[10px] text-slate-500 pb-1.5">só os campos preenchidos são alterados</span>
+          </div>
+        </div>
+      )}
+
       {/* --- Tabela editável inline --- */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-[10px] uppercase tracking-wide text-slate-500 border-b border-slate-800/70 bg-slate-950/40">
               <tr>
+                <th className="px-3 py-2 w-8"><input ref={headerChk} type="checkbox" checked={allSelected} onChange={toggleAll} title="Selecionar todos (do filtro atual)" className="accent-indigo-500 w-4 h-4 align-middle cursor-pointer" /></th>
                 <th className="text-left font-semibold px-3 py-2">Data</th>
                 <th className="text-left font-semibold px-3 py-2">Categoria</th>
                 <th className="text-left font-semibold px-3 py-2">Item</th>
@@ -354,10 +476,11 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
             <tbody className="divide-y divide-slate-800/70">
               {/* Linha de adição rápida */}
               <tr className="bg-slate-950/40">
+                <td className="px-3 py-1.5 text-center"><Plus size={13} className="text-slate-600 inline" /></td>
                 <td className="px-2 py-1.5"><input type="date" value={draft.date || todayISO()} onClick={openPicker} onChange={e => setDraft(d => ({ ...d, date: e.target.value }))} className={`${addCls} [color-scheme:dark] cursor-pointer font-mono text-xs`} /></td>
                 <td className="px-2 py-1.5"><input type="text" list="exp-cats" value={draft.category || ''} onChange={e => setDraft(d => ({ ...d, category: e.target.value }))} placeholder="Categoria" className={addCls} /></td>
                 <td className="px-2 py-1.5"><input type="text" value={draft.item || ''} onChange={e => setDraft(d => ({ ...d, item: e.target.value }))} placeholder="Item" className={addCls} /></td>
-                <td className="px-2 py-1.5"><input type="number" step="0.01" value={draft.amount ?? ''} onWheel={blurOnWheel} onKeyDown={e => { if (e.key === 'Enter') commitDraft(); }} onChange={e => setDraft(d => ({ ...d, amount: e.target.value === '' ? undefined : toNum(e.target.value) }))} placeholder="0,00" className={`${addCls} text-right font-mono`} /></td>
+                <td className="px-2 py-1.5"><input type="number" step="0.01" value={draft.amount ?? ''} onWheel={blurOnWheel} onKeyDown={e => { if (e.key === 'Enter') commitDraft(); }} onChange={e => setDraft(d => ({ ...d, amount: e.target.value === '' ? undefined : toNum(e.target.value) }))} placeholder="R$ 0,00" className={`${addCls} text-right font-mono`} /></td>
                 <td className="px-2 py-1.5"><input type="text" value={draft.description || ''} onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} placeholder="Descrição" className={addCls} /></td>
                 <td className="px-2 py-1.5"><input type="text" list="exp-banks" value={draft.bank || ''} onChange={e => setDraft(d => ({ ...d, bank: e.target.value }))} placeholder="Banco" className={addCls} /></td>
                 <td className="px-2 py-1.5"><input type="text" list="exp-sources" value={draft.source || ''} onChange={e => setDraft(d => ({ ...d, source: e.target.value }))} placeholder="Destino" className={addCls} /></td>
@@ -366,9 +489,10 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
               </tr>
 
               {pageRows.length === 0 ? (
-                <tr><td colSpan={9} className="px-5 py-12 text-center text-slate-500 text-sm">Nenhum gasto neste recorte. Use a linha acima para adicionar.</td></tr>
+                <tr><td colSpan={10} className="px-5 py-12 text-center text-slate-500 text-sm">Nenhum gasto neste recorte. Use a linha acima para adicionar.</td></tr>
               ) : pageRows.map(e => (
-                <tr key={e.id} className="hover:bg-slate-800/20 transition-colors align-middle">
+                <tr key={e.id} className={`transition-colors align-middle ${selected.has(e.id) ? 'bg-indigo-500/5' : 'hover:bg-slate-800/20'}`}>
+                  <td className="px-3 py-1 text-center"><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSel(e.id)} className="accent-indigo-500 w-4 h-4 align-middle cursor-pointer" /></td>
                   <td className="px-2 py-1"><InlineDate value={e.date} onCommit={v => onSaveExpense({ ...e, date: v })} /></td>
                   <td className="px-2 py-1">
                     <div className="flex items-center gap-1">
@@ -377,7 +501,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
                     </div>
                   </td>
                   <td className="px-2 py-1"><InlineText value={e.item} onCommit={v => onSaveExpense({ ...e, item: v || undefined })} /></td>
-                  <td className="px-2 py-1"><InlineNumber value={e.amount} onCommit={v => onSaveExpense({ ...e, amount: v })} className={`${cellCls} ${(Number(e.amount) || 0) < 0 ? 'text-emerald-400' : 'text-slate-100'} font-semibold`} /></td>
+                  <td className="px-2 py-1 min-w-[110px]"><InlineMoney value={e.amount} onCommit={v => onSaveExpense({ ...e, amount: v })} /></td>
                   <td className="px-2 py-1 min-w-[160px]"><InlineText value={e.description} onCommit={v => onSaveExpense({ ...e, description: v || undefined })} /></td>
                   <td className="px-2 py-1"><InlineText value={e.bank} listId="exp-banks" onCommit={v => onSaveExpense({ ...e, bank: v || undefined })} /></td>
                   <td className="px-2 py-1"><InlineText value={e.source} listId="exp-sources" onCommit={v => onSaveExpense({ ...e, source: v || undefined })} /></td>
@@ -405,7 +529,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
         </div>
       </div>
 
-      <p className="text-xs text-slate-600 text-center">Edite qualquer célula direto na tabela — salva automaticamente. A primeira linha adiciona um novo gasto.</p>
+      <p className="text-xs text-slate-600 text-center">Edite qualquer célula direto na tabela — salva automaticamente. A primeira linha adiciona um novo gasto. Marque as caixas para edição rápida ou exclusão em massa.</p>
     </div>
   );
 };

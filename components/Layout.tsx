@@ -10,25 +10,30 @@ interface LayoutProps {
   onLogout: () => void;
 }
 
+// Fora do Layout de propósito: definido dentro, o React recriava o tipo do componente
+// a cada render e REMONTAVA todos os botões — a rolagem da barra lateral pulava
+// para o topo a cada clique. Com identidade estável, o DOM (e o scroll) é preservado.
+const NavItem = ({ tab, icon: Icon, label, activeTab, onSelect }: { tab: TabView; icon: any; label: string; activeTab: TabView; onSelect: (t: TabView) => void }) => (
+  <button
+    onClick={() => onSelect(tab)}
+    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium ${
+      activeTab === tab
+        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
+        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+    }`}
+  >
+    <Icon size={20} />
+    <span>{label}</span>
+  </button>
+);
+
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user, onLogout }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
-  const NavItem = ({ tab, icon: Icon, label }: { tab: TabView; icon: any; label: string }) => (
-    <button
-      onClick={() => {
-        setActiveTab(tab);
-        setIsMobileMenuOpen(false);
-      }}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium ${
-        activeTab === tab
-          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
-          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-      }`}
-    >
-      <Icon size={20} />
-      <span>{label}</span>
-    </button>
-  );
+  const selectTab = (tab: TabView) => {
+    setActiveTab(tab);
+    setIsMobileMenuOpen(false);
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500/30">
@@ -64,39 +69,39 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
           </div>
 
           <nav className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-2">
-              <NavItem tab="DASHBOARD" icon={LayoutDashboard} label="Pendências" />
-              <NavItem tab="NEW_REQUEST" icon={PlusCircle} label="Nova Solicitação" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="DASHBOARD" icon={LayoutDashboard} label="Pendências" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="NEW_REQUEST" icon={PlusCircle} label="Nova Solicitação" />
               <div className="pt-4 pb-2">
                 <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Gestão</p>
               </div>
-              <NavItem tab="BALANCES" icon={Wallet} label="Saldos" />
-              <NavItem tab="BETS" icon={Dices} label="Apostas" />
-              <NavItem tab="RESULTS" icon={LineChart} label="Resultados" />
-              <NavItem tab="EXPENSES" icon={Receipt} label="Gastos" />
-              <NavItem tab="SUMMARY" icon={CalendarRange} label="Resumo" />
-              <NavItem tab="HOLDERS" icon={Contact} label="Titulares" />
-              <NavItem tab="PACKS" icon={Package} label="Packs de Contas" />
-              <NavItem tab="ACCOUNTS_ACTIVE" icon={Users} label="Contas em Uso" />
-              <NavItem tab="ACCOUNTS_LIMITED" icon={Ban} label="Contas Limitadas" />
-              <NavItem tab="ACCOUNTS_REPLACEMENT" icon={RefreshCw} label="Reposição" />
-              <NavItem tab="ACCOUNTS_DELETED" icon={Trash2} label="Contas Excluídas" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="BALANCES" icon={Wallet} label="Saldos" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="BETS" icon={Dices} label="Apostas" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="RESULTS" icon={LineChart} label="Resultados" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="EXPENSES" icon={Receipt} label="Gastos" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="SUMMARY" icon={CalendarRange} label="Resumo" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="HOLDERS" icon={Contact} label="Titulares" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="PACKS" icon={Package} label="Packs de Contas" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_ACTIVE" icon={Users} label="Contas em Uso" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_LIMITED" icon={Ban} label="Contas Limitadas" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_REPLACEMENT" icon={RefreshCw} label="Reposição" />
+              <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_DELETED" icon={Trash2} label="Contas Excluídas" />
               <div className="pt-4 pb-2">
                 <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Sistema</p>
               </div>
               
               {/* Permission Check: Insights only for ADMIN */}
               {user?.role === 'ADMIN' && (
-                <NavItem tab="INSIGHTS" icon={BarChart3} label="Insights" />
+                <NavItem activeTab={activeTab} onSelect={selectTab} tab="INSIGHTS" icon={BarChart3} label="Insights" />
               )}
               
               {/* Permission Check: History NOT for USER and AGENCIA */}
               {user?.role !== 'USER' && user?.role !== 'AGENCIA' && (
-                <NavItem tab="HISTORY" icon={History} label="Histórico" />
+                <NavItem activeTab={activeTab} onSelect={selectTab} tab="HISTORY" icon={History} label="Histórico" />
               )}
               
               {/* Permission Check: Settings for everyone EXCEPT AGENCIA */}
               {user?.role !== 'AGENCIA' && (
-                <NavItem tab="SETTINGS" icon={Settings} label="Configurações" />
+                <NavItem activeTab={activeTab} onSelect={selectTab} tab="SETTINGS" icon={Settings} label="Configurações" />
               )}
           </nav>
 

@@ -995,6 +995,32 @@ const App: React.FC = () => {
     } catch (err: any) { alert(`Erro ao remover gasto: ${err.message}`); }
   };
 
+  const handleDeleteManyExpenses = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    try {
+      for (let i = 0; i < ids.length; i += 400) {
+        const batch = writeBatch(db);
+        ids.slice(i, i + 400).forEach(id => batch.delete(doc(db, 'expenses', id)));
+        await batch.commit();
+      }
+      addLog(undefined, 'Gastos', `Exclusão em massa: ${ids.length} gasto(s)`);
+    } catch (e: any) { console.error(e); alert(`Erro ao excluir gastos: ${e.message}`); }
+  };
+
+  // Edição em massa: cada item traz só os campos a alterar; o resto do gasto fica intacto.
+  const handleUpdateManyExpenses = async (updates: { id: string; data: Partial<Expense> }[]) => {
+    if (updates.length === 0) return;
+    try {
+      const now = new Date().toISOString();
+      for (let i = 0; i < updates.length; i += 400) {
+        const batch = writeBatch(db);
+        updates.slice(i, i + 400).forEach(({ id, data }) => batch.update(doc(db, 'expenses', id), sanitizePayload({ ...data, updatedAt: now })));
+        await batch.commit();
+      }
+      addLog(undefined, 'Gastos', `Edição em massa: ${updates.length} gasto(s)`);
+    } catch (e: any) { console.error(e); alert(`Erro ao editar gastos em massa: ${e.message}`); }
+  };
+
   // --- Resumo mensal: upsert por mês (uma linha por 'yyyy-mm') ---
   const handleSaveMonthlyResult = async (month: string, data: Partial<MonthlyResult>) => {
     try {
@@ -1370,6 +1396,8 @@ const App: React.FC = () => {
             banks={banks}
             onSaveExpense={handleSaveExpense}
             onDeleteExpense={handleDeleteExpense}
+            onDeleteManyExpenses={handleDeleteManyExpenses}
+            onUpdateManyExpenses={handleUpdateManyExpenses}
           />
       )}
       {activeTab === 'SUMMARY' && (
