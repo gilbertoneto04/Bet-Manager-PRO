@@ -119,14 +119,15 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
 
   const reset = () => { setParsed(null); setError(''); setFoundMonths([]); setProgress(''); };
 
-  const fetchTab = async (id: string, sheetName: string): Promise<string[][] | null> => {
+  // Devolve o CSV cru da aba (para permitir detectar o fallback do gviz por conteúdo).
+  const fetchTabText = async (id: string, sheetName: string): Promise<string | null> => {
     const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
     try {
       const res = await fetch(url);
       if (!res.ok) return null;
       const text = await res.text();
       if (/^\s*<!DOCTYPE|<html|google\.visualization\.Query\.setResponse|Sorry, unable|Invalid query/i.test(text.slice(0, 300))) return null;
-      return parseCSV(text);
+      return text;
     } catch { return null; }
   };
 
@@ -137,10 +138,18 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
     try {
       const all: ParsedExpense[] = [];
       const found: string[] = [];
+      // ARMADILHA do gviz: pedir uma aba que NÃO existe não dá erro — o Google devolve
+      // a primeira aba silenciosamente. Sem esta checagem, "Gastos - Agosto…Dezembro"
+      // inexistentes viravam cópias fantasma de Janeiro. Detectamos pelo conteúdo repetido.
+      const seenPayloads = new Set<string>();
       for (const mes of MONTH_NAMES) {
         setProgress(`Buscando “Gastos - ${mes}”...`);
-        const rows = await fetchTab(id, `Gastos - ${mes}`);
-        if (rows && rows.length) {
+        const text = await fetchTabText(id, `Gastos - ${mes}`);
+        if (!text) continue;
+        if (seenPayloads.has(text)) continue; // fallback do gviz (aba inexistente) — ignora
+        seenPayloads.add(text);
+        const rows = parseCSV(text);
+        if (rows.length) {
           const p = rowsToExpenses(rows, year);
           if (p.length) { all.push(...p); found.push(mes); }
         }
@@ -175,21 +184,22 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
   }, [expenses]);
 
   const plan = useMemo(() => {
-    if (!parsed) return { toImport: [] as ParsedExpense[], skipped: 0, despesas: 0, apostas: 0 };
+    if (!parsed) return { toImport: [] as ParsedExpense[], skippedDb: 0, skippedFile: 0, despesas: 0, apostas: 0 };
     const seen = new Set<string>();
     const toImport: ParsedExpense[] = [];
-    let skipped = 0;
+    let skippedDb = 0, skippedFile = 0; // separados: "já está no app" ≠ "linha repetida na planilha"
     parsed.forEach(p => {
       if (!allowDuplicates) {
         const sig = sigOf(p);
-        if (existingSig.has(sig) || seen.has(sig)) { skipped++; return; }
+        if (existingSig.has(sig)) { skippedDb++; return; }
+        if (seen.has(sig)) { skippedFile++; return; }
         seen.add(sig);
       }
       toImport.push(p);
     });
     let despesas = 0, apostas = 0;
     toImport.forEach(p => { if (isApostas(p.category)) apostas += p.amount; else despesas += p.amount; });
-    return { toImport, skipped, despesas, apostas };
+    return { toImport, skippedDb, skippedFile, despesas, apostas };
   }, [parsed, existingSig, allowDuplicates]);
 
   const apply = () => {
@@ -202,7 +212,8 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
         description: p.description, source: p.source, bank: p.bank, createdAt: now,
       } as Expense);
     });
-    alert(`Importados ${plan.toImport.length} gasto(s).${plan.skipped ? ` (${plan.skipped} já existiam/duplicados e foram pulados.)` : ''}`);
+    const pulados = plan.skippedDb + plan.skippedFile;
+    alert(`Importados ${plan.toImport.length} gasto(s).${pulados ? ` (${plan.skippedDb} já existiam no app e ${plan.skippedFile} repetidos na planilha foram pulados.)` : ''}`);
     setOpen(false); reset(); setLink('');
   };
 
@@ -266,7 +277,8 @@ export const ExpensesImport: React.FC<ExpensesImportProps> = ({ expenses, onSave
                     <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-center">
                       <p className="text-[11px] text-slate-500">A importar</p>
                       <p className="text-lg font-bold text-white font-mono">{plan.toImport.length}</p>
-                      {plan.skipped > 0 && <p className="text-[10px] text-slate-500">{plan.skipped} já existem</p>}
+                      {plan.skippedDb > 0 && <p className="text-[10px] text-slate-500">{plan.skippedDb} já existem no app</p>}
+                      {plan.skippedFile > 0 && <p className="text-[10px] text-slate-500">{plan.skippedFile} repetidos na planilha</p>}
                     </div>
                     <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-center">
                       <p className="text-[11px] text-slate-500">Despesas</p>
