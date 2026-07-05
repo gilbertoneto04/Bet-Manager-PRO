@@ -4,11 +4,12 @@ import { fmtBRL } from '../finance';
 import { EXPENSE_APOSTAS_CATEGORY, PAYMENT_METHODS, MONTH_NAMES } from '../constants';
 import { ExpensesImport } from './ExpensesImport'; // TEMP: importador do Sheets — remover na versão final
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell, LabelList,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell, LabelList, PieChart, Pie,
 } from 'recharts';
 import {
   Wallet, Dices, Sigma, ListChecks, Search, Filter, Plus, Trash2, Pencil,
   ChevronLeft, ChevronRight, CalendarDays, ArrowDownUp, BarChart3, ChevronDown, ChevronUp, X,
+  PieChart as PieIcon, BarChart2,
 } from 'lucide-react';
 
 interface ExpensesProps {
@@ -86,7 +87,34 @@ const InlineDate: React.FC<{ value?: string; onCommit: (v: string) => void }> = 
     className={`${cellCls} [color-scheme:dark] cursor-pointer font-mono text-xs w-[128px]`} />
 );
 
+const monthShort = (ym: string) => { const [y, m] = ym.split('-'); const i = Number(m) - 1; return i >= 0 && i < 12 ? `${MONTH_NAMES[i].slice(0, 3)}/${(y || '').slice(2)}` : 'S/data'; };
+
 const CHART_COLORS = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#a78bfa', '#f87171', '#2dd4bf', '#e879f9', '#4ade80', '#fb923c', '#38bdf8'];
+
+// Fora do componente (identidade estável): definidos dentro, o React remontava a caixa
+// rolável a cada clique e a rolagem dos filtros voltava ao topo.
+const Chip = ({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) => (
+  <button onClick={onClick} className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${on ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}>{label}</button>
+);
+const FilterBox = ({ title, options, selected, onToggle, onSetAll, labelFn }: {
+  title: string; options: string[]; selected: Set<string>;
+  onToggle: (v: string) => void; onSetAll: (vals: string[]) => void; labelFn?: (v: string) => string;
+}) => {
+  const allOn = options.length > 0 && options.every(o => selected.has(o));
+  return (
+    <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 min-w-0">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold truncate">{title}{selected.size > 0 && <span className="ml-1.5 text-indigo-400">({selected.size})</span>}</p>
+        <button onClick={() => onSetAll(allOn ? [] : options)} disabled={options.length === 0} className="text-[10px] text-indigo-300 hover:text-indigo-200 font-medium shrink-0 disabled:opacity-40">
+          {allOn ? 'limpar' : 'marcar todos'}
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+        {options.length === 0 ? <span className="text-xs text-slate-600">nenhum ainda</span> : options.map(o => <Chip key={o} on={selected.has(o)} label={labelFn ? labelFn(o) : o} onClick={() => onToggle(o)} />)}
+      </div>
+    </div>
+  );
+};
 
 // Estilo compartilhado dos tooltips dos gráficos (fundo escuro + texto claro e legível).
 const TOOLTIP_STYLES = {
@@ -253,9 +281,12 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
     analysisRows.forEach(e => { const k = monthOf(e.date); m.set(k, (m.get(k) || 0) + (Number(e.amount) || 0)); });
     return Array.from(m.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([k, total]) => ({ key: k ? monthLabel(k) : 'Sem data', total }));
+      .map(([k, total]) => ({ key: k ? monthShort(k) : 'S/data', total }));
   }, [analysisRows]);
   const catTotalAbs = useMemo(() => analysisByCategory.reduce((s, c) => s + Math.abs(c.total), 0), [analysisByCategory]);
+  // Dados do gráfico de pizza (usa valor absoluto para dimensionar as fatias; tooltip mostra o valor real).
+  const pieData = useMemo(() => analysisByCategory.map(c => ({ ...c, abs: Math.abs(c.total) })).filter(c => c.abs > 0), [analysisByCategory]);
+  const [catChart, setCatChart] = useState<'pie' | 'bar'>('pie');
 
   const selCls = 'bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none';
   const dateCls = `${selCls} [color-scheme:dark] cursor-pointer`;
@@ -268,19 +299,6 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
       <div className="min-w-0"><p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">{label}</p><p className="text-lg font-bold text-white font-mono truncate">{value}</p>{sub && <p className="text-[10px] text-slate-500">{sub}</p>}</div>
     </div>
   );
-  const Chip = ({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) => (
-    <button onClick={onClick} className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${on ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}>{label}</button>
-  );
-  const FilterBox = ({ title, count, onClear, children }: { title: string; count: number; onClear: () => void; children: React.ReactNode }) => (
-    <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 min-w-0">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">{title}{count > 0 && <span className="ml-1.5 text-indigo-400">({count})</span>}</p>
-        {count > 0 && <button onClick={onClear} className="text-[10px] text-indigo-300 hover:text-indigo-200 font-medium">limpar</button>}
-      </div>
-      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">{children}</div>
-    </div>
-  );
-
   return (
     <div className="space-y-6">
       {/* Datalists compartilhadas */}
@@ -332,15 +350,9 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
           <div className="p-5 space-y-4 border-t border-slate-800">
             {/* filtros de análise em caixas organizadas */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <FilterBox title="Categorias" count={aCats.size} onClear={() => setACats(new Set())}>
-                {categoryOptions.length === 0 ? <span className="text-xs text-slate-600">nenhuma ainda</span> : categoryOptions.map(c => <Chip key={c} on={aCats.has(c)} label={c} onClick={() => toggle(aCats, c, setACats)} />)}
-              </FilterBox>
-              <FilterBox title="Meses" count={aMonths.size} onClear={() => setAMonths(new Set())}>
-                {monthsInData.length === 0 ? <span className="text-xs text-slate-600">nenhum ainda</span> : monthsInData.map(m => <Chip key={m} on={aMonths.has(m)} label={monthLabel(m)} onClick={() => toggle(aMonths, m, setAMonths)} />)}
-              </FilterBox>
-              <FilterBox title="Bancos" count={aBanks.size} onClear={() => setABanks(new Set())}>
-                {bankOptions.length === 0 ? <span className="text-xs text-slate-600">nenhum ainda</span> : bankOptions.map(b => <Chip key={b} on={aBanks.has(b)} label={b} onClick={() => toggle(aBanks, b, setABanks)} />)}
-              </FilterBox>
+              <FilterBox title="Categorias" options={categoryOptions} selected={aCats} onToggle={c => toggle(aCats, c, setACats)} onSetAll={list => setACats(new Set(list))} />
+              <FilterBox title="Meses" options={monthsInData} selected={aMonths} onToggle={m => toggle(aMonths, m, setAMonths)} onSetAll={list => setAMonths(new Set(list))} labelFn={monthLabel} />
+              <FilterBox title="Bancos" options={bankOptions} selected={aBanks} onToggle={b => toggle(aBanks, b, setABanks)} onSetAll={list => setABanks(new Set(list))} />
             </div>
 
             <div className="flex items-center gap-3 flex-wrap">
@@ -351,12 +363,37 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
             {/* gráficos */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="bg-slate-950/40 border border-slate-800 rounded-xl overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800/70">
+                <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-800/70">
                   <p className="text-xs font-bold text-slate-300 uppercase tracking-wide">Por categoria</p>
-                  <span className="text-xs font-mono text-slate-500">{analysisByCategory.length} categoria(s)</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-slate-500">{analysisByCategory.length} cat.</span>
+                    <div className="flex items-center gap-0.5 bg-slate-900 border border-slate-700 rounded-lg p-0.5">
+                      <button onClick={() => setCatChart('pie')} title="Pizza" className={`p-1 rounded ${catChart === 'pie' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}><PieIcon size={13} /></button>
+                      <button onClick={() => setCatChart('bar')} title="Barras" className={`p-1 rounded ${catChart === 'bar' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}><BarChart2 size={13} /></button>
+                    </div>
+                  </div>
                 </div>
                 <div className="p-3">
-                  {analysisByCategory.length === 0 ? <p className="text-xs text-slate-600 py-10 text-center">Sem dados no recorte atual.</p> : (
+                  {analysisByCategory.length === 0 ? <p className="text-xs text-slate-600 py-10 text-center">Sem dados no recorte atual.</p> : catChart === 'pie' ? (
+                    <div className="flex flex-col sm:flex-row items-center gap-3">
+                      <ResponsiveContainer width="100%" height={240} className="max-w-[260px] shrink-0">
+                        <PieChart>
+                          <Pie data={pieData} dataKey="abs" nameKey="key" cx="50%" cy="50%" innerRadius={52} outerRadius={92} paddingAngle={1} stroke="#0f172a" strokeWidth={2}>
+                            {pieData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip {...TOOLTIP_STYLES} formatter={(_v: any, _n: any, p: any) => { const pct = catTotalAbs > 0 ? ` · ${(p.payload.abs / catTotalAbs * 100).toFixed(1)}%` : ''; return [`${fmtBRL(p.payload.total)}${pct}`, p.payload.key]; }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="w-full sm:flex-1 max-h-[240px] overflow-y-auto space-y-1 pr-1">
+                        {pieData.map((c, i) => (
+                          <div key={c.key} className="flex items-center justify-between gap-2 text-xs">
+                            <span className="flex items-center gap-1.5 min-w-0"><span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} /><span className="truncate text-slate-300">{c.key}</span></span>
+                            <span className="font-mono text-slate-400 shrink-0">{fmtBRL(c.total)} <span className="text-slate-600">· {catTotalAbs > 0 ? (c.abs / catTotalAbs * 100).toFixed(0) : 0}%</span></span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
                     <ResponsiveContainer width="100%" height={Math.max(180, analysisByCategory.length * 34)}>
                       <BarChart data={analysisByCategory} layout="vertical" margin={{ left: 8, right: 76, top: 4, bottom: 4 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
@@ -386,7 +423,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ expenses, banks, onSaveExpen
                     <ResponsiveContainer width="100%" height={260}>
                       <BarChart data={analysisByMonth} margin={{ left: 8, right: 8, top: 16, bottom: 4 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                        <XAxis dataKey="key" stroke="#94a3b8" fontSize={11} axisLine={false} tickLine={false} />
+                        <XAxis dataKey="key" stroke="#94a3b8" fontSize={11} axisLine={false} tickLine={false} interval={0} />
                         <YAxis tickFormatter={fmtAxis} stroke="#475569" fontSize={11} width={58} axisLine={false} tickLine={false} />
                         <Tooltip {...TOOLTIP_STYLES} cursor={{ fill: '#33415533' }} formatter={(v: any) => [fmtBRL(Number(v)), 'Total']} />
                         <Bar dataKey="total" name="Total" fill="#818cf8" radius={[5, 5, 0, 0]} maxBarSize={48}>

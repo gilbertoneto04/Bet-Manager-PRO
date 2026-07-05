@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, PlusCircle, History, Menu, X, Users, Ban, Settings, BarChart3, Package, RefreshCw, LogOut, Trash2, Contact, Wallet, Dices, LineChart, Receipt, CalendarRange } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, History, Menu, X, Users, Ban, Settings, BarChart3, Package, RefreshCw, LogOut, Trash2, Contact, Wallet, Dices, LineChart, Receipt, CalendarRange, ChevronDown, ChevronRight } from 'lucide-react';
 import { TabView, User } from '../types';
 
 interface LayoutProps {
@@ -27,8 +27,19 @@ const NavItem = ({ tab, icon: Icon, label, activeTab, onSelect }: { tab: TabView
   </button>
 );
 
+// Cabeçalho de seção colapsável (também fora do Layout para não remontar/perder o scroll).
+const SectionHeader = ({ id, title, collapsed, onToggle }: { id: string; title: string; collapsed: boolean; onToggle: (id: string) => void }) => (
+  <button onClick={() => onToggle(id)} className="w-full flex items-center justify-between gap-2 px-4 pt-4 pb-1 group" title={collapsed ? 'Expandir' : 'Minimizar'}>
+    <span className="text-xs font-semibold text-slate-500 group-hover:text-slate-300 uppercase tracking-wider transition-colors">{title}</span>
+    {collapsed ? <ChevronRight size={14} className="text-slate-600 group-hover:text-slate-400" /> : <ChevronDown size={14} className="text-slate-600 group-hover:text-slate-400" />}
+  </button>
+);
+
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user, onLogout }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const [collapsedSections, setCollapsedSections] = React.useState<Set<string>>(new Set());
+  const toggleSection = (id: string) => setCollapsedSections(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const open = (id: string) => !collapsedSections.has(id);
 
   const selectTab = (tab: TabView) => {
     setActiveTab(tab);
@@ -71,37 +82,54 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
           <nav className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-2">
               <NavItem activeTab={activeTab} onSelect={selectTab} tab="DASHBOARD" icon={LayoutDashboard} label="Pendências" />
               <NavItem activeTab={activeTab} onSelect={selectTab} tab="NEW_REQUEST" icon={PlusCircle} label="Nova Solicitação" />
-              <div className="pt-4 pb-2">
-                <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Gestão</p>
-              </div>
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="BALANCES" icon={Wallet} label="Saldos" />
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="BETS" icon={Dices} label="Apostas" />
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="RESULTS" icon={LineChart} label="Resultados" />
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="EXPENSES" icon={Receipt} label="Gastos" />
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="SUMMARY" icon={CalendarRange} label="Resumo" />
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="HOLDERS" icon={Contact} label="Titulares" />
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="PACKS" icon={Package} label="Packs de Contas" />
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_ACTIVE" icon={Users} label="Contas em Uso" />
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_LIMITED" icon={Ban} label="Contas Limitadas" />
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_REPLACEMENT" icon={RefreshCw} label="Reposição" />
-              <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_DELETED" icon={Trash2} label="Contas Excluídas" />
-              <div className="pt-4 pb-2">
-                <p className="px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Sistema</p>
-              </div>
-              
-              {/* Permission Check: Insights only for ADMIN */}
-              {user?.role === 'ADMIN' && (
-                <NavItem activeTab={activeTab} onSelect={selectTab} tab="INSIGHTS" icon={BarChart3} label="Insights" />
+              {/* Seção Pessoal */}
+              <SectionHeader id="pessoal" title="Pessoal" collapsed={!open('pessoal')} onToggle={toggleSection} />
+              {open('pessoal') && (
+                <div className="space-y-2">
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="BALANCES" icon={Wallet} label="Saldos" />
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="EXPENSES" icon={Receipt} label="Gastos" />
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="SUMMARY" icon={CalendarRange} label="Resumo" />
+                </div>
               )}
-              
-              {/* Permission Check: History NOT for USER and AGENCIA */}
-              {user?.role !== 'USER' && user?.role !== 'AGENCIA' && (
-                <NavItem activeTab={activeTab} onSelect={selectTab} tab="HISTORY" icon={History} label="Histórico" />
+
+              {/* Seção Contas */}
+              <SectionHeader id="contas" title="Contas" collapsed={!open('contas')} onToggle={toggleSection} />
+              {open('contas') && (
+                <div className="space-y-2">
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="HOLDERS" icon={Contact} label="Titulares" />
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="PACKS" icon={Package} label="Packs de Contas" />
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_ACTIVE" icon={Users} label="Contas em Uso" />
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_LIMITED" icon={Ban} label="Contas Limitadas" />
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_REPLACEMENT" icon={RefreshCw} label="Reposição" />
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="ACCOUNTS_DELETED" icon={Trash2} label="Contas Excluídas" />
+                </div>
               )}
-              
-              {/* Permission Check: Settings for everyone EXCEPT AGENCIA */}
-              {user?.role !== 'AGENCIA' && (
-                <NavItem activeTab={activeTab} onSelect={selectTab} tab="SETTINGS" icon={Settings} label="Configurações" />
+
+              {/* Seção Apostas */}
+              <SectionHeader id="apostas" title="Apostas" collapsed={!open('apostas')} onToggle={toggleSection} />
+              {open('apostas') && (
+                <div className="space-y-2">
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="BETS" icon={Dices} label="Apostas" />
+                  <NavItem activeTab={activeTab} onSelect={selectTab} tab="RESULTS" icon={LineChart} label="Resultados" />
+                </div>
+              )}
+
+              {/* Seção Sistema (respeita as permissões) */}
+              {(user?.role === 'ADMIN' || user?.role !== 'AGENCIA') && (
+                <SectionHeader id="sistema" title="Sistema" collapsed={!open('sistema')} onToggle={toggleSection} />
+              )}
+              {open('sistema') && (
+                <div className="space-y-2">
+                  {user?.role === 'ADMIN' && (
+                    <NavItem activeTab={activeTab} onSelect={selectTab} tab="INSIGHTS" icon={BarChart3} label="Insights" />
+                  )}
+                  {user?.role !== 'USER' && user?.role !== 'AGENCIA' && (
+                    <NavItem activeTab={activeTab} onSelect={selectTab} tab="HISTORY" icon={History} label="Histórico" />
+                  )}
+                  {user?.role !== 'AGENCIA' && (
+                    <NavItem activeTab={activeTab} onSelect={selectTab} tab="SETTINGS" icon={Settings} label="Configurações" />
+                  )}
+                </div>
               )}
           </nav>
 
