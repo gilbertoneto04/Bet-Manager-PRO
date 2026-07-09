@@ -13,6 +13,15 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "preview"],
       "port": 4173
+    },
+    {
+      "name": "f1-fair-odds",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "C:\\Users\\Gilberto\\OneDrive\\Área de Trabalho\\dev bet\\modelo-f1\\app.py",
+        "--no-browser"
+      ],
+      "port": 8177
     }
   ]
 }

@@ -1,4 +1,4 @@
-// ⚠️ TEMPORÁRIO — dados extraídos da aba "Saldos" da planilha de CONTROLE (snapshot 2026-06-15).
+// ⚠️ TEMPORÁRIO — dados extraídos da aba "Saldos" da planilha de CONTROLE (snapshot 2026-07-09).
 // Usado só pelo importador (SaldosImport.tsx). A versão final NÃO terá importador:
 // para remover, apague este arquivo + SaldosImport.tsx e a linha <SaldosImport/> no Balances.tsx.
 export interface SaldoSeedRow {
@@ -15,10 +15,10 @@ export interface SaldoSeedRow {
 export const SALDOS_SEED: SaldoSeedRow[] = [
   {
     "kind": "ACCOUNT",
-    "casa": "Avião",
-    "titular": "",
-    "saldo": 500.0,
-    "pendente": 0.0,
+    "casa": "Betano",
+    "titular": "Igor",
+    "saldo": 23913.21,
+    "pendente": 1500.0,
     "limitada": true,
     "investment": false,
     "nota": "Sacar"
@@ -55,50 +55,20 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
   },
   {
     "kind": "ACCOUNT",
-    "casa": "Bet365 AR",
-    "titular": "Mardaroc",
-    "saldo": 4305.61,
-    "pendente": 0.0,
-    "limitada": false,
-    "investment": false,
-    "nota": ""
-  },
-  {
-    "kind": "ACCOUNT",
     "casa": "Bet365",
     "titular": "Igor",
-    "saldo": 2368.74,
+    "saldo": 744.71,
     "pendente": 0.0,
     "limitada": false,
     "investment": false,
-    "nota": ""
+    "nota": "SMS"
   },
   {
     "kind": "ACCOUNT",
     "casa": "Bet365",
     "titular": "Ellen",
-    "saldo": 0.0,
+    "saldo": 6693.75,
     "pendente": 0.0,
-    "limitada": false,
-    "investment": false,
-    "nota": "Depositar"
-  },
-  {
-    "kind": "ACCOUNT",
-    "casa": "Bet365",
-    "titular": "Greg",
-    "saldo": 0.0,
-    "pendente": 0.0,
-    "limitada": false,
-    "investment": false,
-    "nota": "Conta bloqueada"
-  },
-  {
-    "kind": "ACCOUNT",
-    "casa": "Betano",
-    "titular": "Igor",
-    "saldo": 2486.54,
-    "pendente": 535.36,
     "limitada": false,
     "investment": false,
     "nota": ""
@@ -107,8 +77,8 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "ACCOUNT",
     "casa": "Betano",
     "titular": "Ellen",
-    "saldo": 600.93,
-    "pendente": 203.61,
+    "saldo": 12413.72,
+    "pendente": 0.0,
     "limitada": false,
     "investment": false,
     "nota": ""
@@ -117,27 +87,37 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "ACCOUNT",
     "casa": "Betano",
     "titular": "Greg",
-    "saldo": 705.28,
-    "pendente": 199.72,
+    "saldo": 2568.72,
+    "pendente": 0.0,
     "limitada": false,
     "investment": false,
-    "nota": "Depositar"
+    "nota": ""
+  },
+  {
+    "kind": "ACCOUNT",
+    "casa": "SuperBet",
+    "titular": "Igor",
+    "saldo": 8107.0,
+    "pendente": 0.0,
+    "limitada": false,
+    "investment": false,
+    "nota": "Facial + Não paguei"
   },
   {
     "kind": "ACCOUNT",
     "casa": "SuperBet",
     "titular": "Ellen",
-    "saldo": 10465.3,
-    "pendente": 100.0,
+    "saldo": 7615.3,
+    "pendente": 0.0,
     "limitada": false,
     "investment": false,
-    "nota": "Acho que limitou"
+    "nota": "Facial"
   },
   {
     "kind": "ACCOUNT",
     "casa": "SuperBet",
     "titular": "Greg",
-    "saldo": 4882.14,
+    "saldo": 1966.64,
     "pendente": 0.0,
     "limitada": false,
     "investment": false,
@@ -147,7 +127,7 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "ACCOUNT",
     "casa": "Novibet",
     "titular": "Ellen",
-    "saldo": 1955.0,
+    "saldo": 2677.82,
     "pendente": 0.0,
     "limitada": false,
     "investment": false,
@@ -157,7 +137,7 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "ACCOUNT",
     "casa": "Pinnacle",
     "titular": "",
-    "saldo": 3369.47,
+    "saldo": 1613.52,
     "pendente": 0.0,
     "limitada": false,
     "investment": false,
@@ -168,16 +148,16 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "casa": "BETEsporte",
     "titular": "Walter",
     "saldo": 0.0,
-    "pendente": 0.0,
+    "pendente": 900.0,
     "limitada": false,
     "investment": false,
-    "nota": ""
+    "nota": "Depositar"
   },
   {
     "kind": "ACCOUNT",
-    "casa": "Lance de Sorte",
-    "titular": "Walter",
-    "saldo": 900.0,
+    "casa": "PIN",
+    "titular": "",
+    "saldo": 975.41,
     "pendente": 0.0,
     "limitada": false,
     "investment": false,
@@ -187,17 +167,7 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "ACCOUNT",
     "casa": "EstrelaBet",
     "titular": "Ellen",
-    "saldo": 2350.0,
-    "pendente": 0.0,
-    "limitada": false,
-    "investment": false,
-    "nota": ""
-  },
-  {
-    "kind": "ACCOUNT",
-    "casa": "Ice",
-    "titular": "",
-    "saldo": 927.0,
+    "saldo": 2607.57,
     "pendente": 0.0,
     "limitada": false,
     "investment": false,
@@ -207,7 +177,7 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "ACCOUNT",
     "casa": "UP",
     "titular": "",
-    "saldo": 2925.0,
+    "saldo": 0.0,
     "pendente": 0.0,
     "limitada": false,
     "investment": false,
@@ -227,8 +197,8 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "ACCOUNT",
     "casa": "PolyMarket",
     "titular": "",
-    "saldo": 365.6,
-    "pendente": 45.99,
+    "saldo": 1544.8,
+    "pendente": 3380.0,
     "limitada": false,
     "investment": false,
     "nota": ""
@@ -237,8 +207,28 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "ACCOUNT",
     "casa": "Fortune Jack",
     "titular": "",
-    "saldo": 0.05,
-    "pendente": 3256.2,
+    "saldo": 1404.75,
+    "pendente": 1500.0,
+    "limitada": false,
+    "investment": false,
+    "nota": ""
+  },
+  {
+    "kind": "BANK",
+    "casa": "Bebidas vô",
+    "titular": "",
+    "saldo": 255.0,
+    "pendente": 0.0,
+    "limitada": false,
+    "investment": false,
+    "nota": ""
+  },
+  {
+    "kind": "BANK",
+    "casa": "Greg",
+    "titular": "",
+    "saldo": 1300.0,
+    "pendente": 0.0,
     "limitada": false,
     "investment": false,
     "nota": ""
@@ -247,7 +237,7 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "BANK",
     "casa": "Aliados",
     "titular": "",
-    "saldo": 5000.0,
+    "saldo": 2500.0,
     "pendente": 0.0,
     "limitada": false,
     "investment": false,
@@ -257,7 +247,7 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "BANK",
     "casa": "MP",
     "titular": "",
-    "saldo": 36404.11,
+    "saldo": 18801.77,
     "pendente": 0.0,
     "limitada": false,
     "investment": false,
@@ -268,7 +258,7 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "casa": "NUBANK",
     "titular": "PF",
     "saldo": 0.0,
-    "pendente": -765.36,
+    "pendente": -1078.99,
     "limitada": false,
     "investment": false,
     "nota": ""
@@ -278,7 +268,7 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "casa": "NUBANK",
     "titular": "PJ",
     "saldo": 0.0,
-    "pendente": -3626.61,
+    "pendente": -3744.35,
     "limitada": false,
     "investment": false,
     "nota": ""
@@ -287,7 +277,7 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "BANK",
     "casa": "SICREDI",
     "titular": "PJ",
-    "saldo": 116794.64,
+    "saldo": 114240.64,
     "pendente": 0.0,
     "limitada": false,
     "investment": false,
@@ -297,31 +287,31 @@ export const SALDOS_SEED: SaldoSeedRow[] = [
     "kind": "BANK",
     "casa": "NUBANK",
     "titular": "CAIXINHA",
-    "saldo": 5388.64,
+    "saldo": 5446.11,
     "pendente": 0.0,
     "limitada": false,
     "investment": true,
-    "nota": ""
+    "nota": "115%"
   },
   {
     "kind": "BANK",
     "casa": "99PAY",
     "titular": "CAIXINHA",
-    "saldo": 4805.15,
+    "saldo": 4863.17,
     "pendente": 0.0,
     "limitada": false,
     "investment": true,
-    "nota": ""
+    "nota": "114%"
   },
   {
     "kind": "BANK",
     "casa": "MP",
     "titular": "CAIXINHA",
-    "saldo": 4380.08,
+    "saldo": 5434.56,
     "pendente": 0.0,
     "limitada": false,
     "investment": true,
-    "nota": ""
+    "nota": "120%"
   },
   {
     "kind": "BANK",

@@ -7,7 +7,7 @@ import React, { useMemo, useState } from 'react';
 import { Account, Bank, Holder } from '../types';
 import { fmtBRL } from '../finance';
 import { SALDOS_SEED, SaldoSeedRow } from './saldosSeed';
-import { X, Upload, ArrowRight, Plus, RefreshCw, Landmark, PiggyBank, Check } from 'lucide-react';
+import { X, Upload, Plus, RefreshCw, Landmark, PiggyBank, Check } from 'lucide-react';
 
 interface SaldosImportProps {
   accounts: Account[];
@@ -18,8 +18,6 @@ interface SaldosImportProps {
 }
 
 const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim().replace(/\s+/g, ' ');
-// Regra do usuário: titular "Greg" no Sheets corresponde a "Bradlley" na plataforma
-const aliasTitular = (t: string) => (norm(t) === 'greg' ? 'Bradlley' : t);
 
 interface PlanItem {
   idx: number;
@@ -36,7 +34,7 @@ export const SaldosImport: React.FC<SaldosImportProps> = ({ accounts, banks, hol
   const holderName = (a: Account) => a.owner || holders.find(h => h.id === a.holderId)?.name || '';
 
   const plan = useMemo<PlanItem[]>(() => SALDOS_SEED.map((row, idx) => {
-    const mappedTitular = aliasTitular(row.titular);
+    const mappedTitular = row.titular;
     if (row.kind === 'ACCOUNT') {
       const targetAccount = accounts.find(a => norm(a.house) === norm(row.casa) && norm(holderName(a)) === norm(mappedTitular));
       return { idx, row, mappedTitular, targetAccount, action: targetAccount ? 'UPDATE' : 'CREATE' };
@@ -106,15 +104,12 @@ export const SaldosImport: React.FC<SaldosImportProps> = ({ accounts, banks, hol
 
   const Row = ({ p }: { p: PlanItem }) => {
     const on = !excluded.has(p.idx);
-    const aliased = norm(p.row.titular) === 'greg';
     return (
       <tr className={`border-t border-slate-800/70 ${on ? '' : 'opacity-40'}`}>
         <td className="px-3 py-2"><input type="checkbox" checked={on} onChange={() => toggle(p.idx)} className="accent-indigo-500 w-4 h-4" /></td>
         <td className="px-3 py-2 text-slate-100 font-medium whitespace-nowrap">{p.row.casa}</td>
         <td className="px-3 py-2 text-slate-300 whitespace-nowrap">
-          {aliased ? (
-            <span className="inline-flex items-center gap-1">Greg <ArrowRight size={11} className="text-indigo-400" /> <span className="text-indigo-300">Bradlley</span></span>
-          ) : (p.mappedTitular || (p.row.kind === 'BANK' ? (p.row.titular || '—') : '—'))}
+          {p.mappedTitular || (p.row.kind === 'BANK' ? (p.row.titular || '—') : '—')}
         </td>
         <td className="px-3 py-2 text-right font-mono text-slate-200 whitespace-nowrap">{fmtBRL(p.row.saldo)}</td>
         <td className="px-3 py-2 text-right font-mono text-amber-300 whitespace-nowrap">{p.row.pendente ? fmtBRL(p.row.pendente) : '—'}</td>
@@ -164,7 +159,6 @@ export const SaldosImport: React.FC<SaldosImportProps> = ({ accounts, banks, hol
             <div className="px-5 py-3 border-b border-slate-800 bg-slate-950/40 shrink-0 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
               <span>Contas: <span className="text-emerald-400">{counts.accUpdate} atualizar</span> · <span className="text-sky-400">{counts.accCreate} criar</span></span>
               <span>Bancos: <span className="text-emerald-400">{counts.bankUpdate} atualizar</span> · <span className="text-sky-400">{counts.bankCreate} criar</span></span>
-              <span className="text-slate-500">Regra aplicada: Greg → Bradlley</span>
             </div>
 
             <div className="p-5 space-y-5 overflow-y-auto">
