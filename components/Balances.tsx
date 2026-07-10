@@ -3,8 +3,9 @@ import { Account, Holder, Bank } from '../types';
 import { fmtBRL } from '../finance';
 import {
   Wallet, Landmark, Clock, PiggyBank, Search, Filter, Ban, RefreshCw, Building2,
-  Contact, ArrowDownUp, Plus, Pencil, Trash2, X, Save, TrendingUp, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown
+  Contact, ArrowDownUp, Plus, Pencil, Trash2, X, Save, TrendingUp, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Eraser, AlertTriangle
 } from 'lucide-react';
+import { IMPORTED_ACCOUNT_TAG } from '../constants';
 import { SaldosImport } from './SaldosImport'; // TEMP: importador do Sheets — remover na versão final
 
 interface BalancesProps {
@@ -15,7 +16,16 @@ interface BalancesProps {
   onSaveBank: (bank: Bank) => void;
   onDeleteBank: (bankId: string) => void;
   onDeleteAccount: (accountId: string, reason: string) => void;
+  onPermanentDeleteAccount: (accountId: string) => void;
+  onPurgeImportedAccounts: (accountIds: string[]) => void;
 }
+
+// Uma conta é "importada da planilha" (não cadastrada de verdade) quando tem a tag do
+// importador OU quando não tem NENHum vestígio de cadastro real (sem login/senha/e-mail,
+// sem depósito/pagamento, sem vínculo com pack ou tarefa). Só saldo/pendente = linha da planilha.
+const isImportedAccount = (a: Account) =>
+  (a.tags || []).includes(IMPORTED_ACCOUNT_TAG) ||
+  !(a.packId || a.taskIdSource || a.username || a.password || (a.email && a.email.trim()) || a.depositValue || a.paidValue);
 
 const ACCOUNT_STATUS_OPTIONS: { value: Account['status']; label: string }[] = [
   { value: 'ACTIVE', label: 'Ativa' },
@@ -125,7 +135,7 @@ const noteInputClass =
 
 const emptyBank = (): Partial<Bank> => ({ name: '', kind: 'BANK', balance: 0, pendingBalance: 0, note: '', holderId: '', owner: '' });
 
-export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, onSaveAccount, onSaveBank, onDeleteBank, onDeleteAccount }) => {
+export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, onSaveAccount, onSaveBank, onDeleteBank, onDeleteAccount, onPermanentDeleteAccount, onPurgeImportedAccounts }) => {
   const [search, setSearch] = useState('');
   const [filterHouse, setFilterHouse] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('ACTIVE');
@@ -134,6 +144,8 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
   const [groupBy, setGroupBy] = useState<'HOUSE' | 'HOLDER'>('HOUSE');
   const [bankModal, setBankModal] = useState<Partial<Bank> | null>(null);
   const [accountModal, setAccountModal] = useState<Account | null>(null);
+  const [banksCollapsed, setBanksCollapsed] = useState(false);
+  const [purgeOpen, setPurgeOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // Chave única por grupo (inclui o modo de agrupamento p/ não colidir Casa×Titular)
   const groupId = (key: string) => `${groupBy}:${key}`;
@@ -228,6 +240,9 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
     [filteredBanks]
   );
 
+  // Contas que vieram da planilha e não são cadastros reais — alvo do "Limpar importados".
+  const importedAccounts = useMemo(() => accounts.filter(isImportedAccount), [accounts]);
+
   const saveBankFromModal = () => {
     if (!bankModal) return;
     if (!bankModal.name || !bankModal.name.trim()) { alert('Informe o nome do banco/investimento.'); return; }
@@ -265,9 +280,21 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
   };
 
   const deleteAccount = (a: Account) => {
+    // Conta importada da planilha (não cadastrada) -> apaga de vez, NÃO vai para "Excluídas".
+    if (isImportedAccount(a)) {
+      onPermanentDeleteAccount(a.id); // já pede confirmação
+      return;
+    }
+    // Conta cadastrada de verdade -> soft delete (vai para "Excluídas" com motivo).
     const reason = prompt(`Excluir a conta "${a.name}" (${a.house})?\n\nA conta vai para "Excluídas" (não é apagada de vez). Informe o motivo:`, '');
     if (reason === null) return; // cancelou
     onDeleteAccount(a.id, reason.trim());
+  };
+
+  const purgeImported = () => {
+    if (!importedAccounts.length) return;
+    onPurgeImportedAccounts(importedAccounts.map(a => a.id));
+    setPurgeOpen(false);
   };
 
   const SummaryCard = ({ icon: Icon, label, value, accent }: { icon: any; label: string; value: string; accent: string }) => (
@@ -293,6 +320,15 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
         <div className="flex items-center gap-2">
           {/* TEMP: importador do Sheets — remover na versão final (apague só esta linha) */}
           <SaldosImport accounts={accounts} banks={banks} holders={holders} onSaveAccount={onSaveAccount} onSaveBank={onSaveBank} />
+          {importedAccounts.length > 0 && (
+            <button
+              onClick={() => setPurgeOpen(true)}
+              title="Remover as contas que vieram da planilha e não são cadastradas na plataforma"
+              className="flex items-center gap-1.5 bg-red-950/40 border border-red-900/50 hover:bg-red-900/40 text-red-300 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            >
+              <Eraser size={14} /> Limpar importados ({importedAccounts.length})
+            </button>
+          )}
           <button
             onClick={() => { const allCollapsed = groups.length > 0 && groups.every(g => collapsed.has(groupId(g.key))); setCollapsed(allCollapsed ? new Set() : new Set(groups.map(g => groupId(g.key)))); }}
             title="Expandir / minimizar todos"
@@ -376,12 +412,13 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
 
       {/* Bancos & Investimentos (primeiro da lista) */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-800 bg-slate-950/50">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className={`flex items-center justify-between gap-3 px-5 py-3 ${banksCollapsed ? '' : 'border-b border-slate-800'} bg-slate-950/50`}>
+          <button onClick={() => setBanksCollapsed(v => !v)} className="flex items-center gap-2 min-w-0 text-left hover:opacity-80 transition-opacity" title={banksCollapsed ? 'Expandir' : 'Minimizar'}>
+            {banksCollapsed ? <ChevronRight size={16} className="text-slate-500 shrink-0" /> : <ChevronDown size={16} className="text-slate-500 shrink-0" />}
             <PiggyBank size={18} className="text-sky-400 shrink-0" />
             <h3 className="text-sm font-bold text-white">Bancos &amp; Investimentos</h3>
             <span className="text-xs text-slate-500">{filteredBanks.length} {filteredBanks.length === 1 ? 'registro' : 'registros'}</span>
-          </div>
+          </button>
           <div className="flex items-center gap-3 shrink-0">
             <span className="text-sm font-bold text-white font-mono">{fmtBRL(banksTotal)}</span>
             <button
@@ -393,7 +430,7 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
           </div>
         </div>
 
-        {filteredBanks.length === 0 ? (
+        {!banksCollapsed && (filteredBanks.length === 0 ? (
           <div className="px-5 py-10 text-center text-slate-500 text-sm">
             Nenhum banco ou investimento cadastrado. Use “Adicionar” para registrar (apenas controle — não entra no P/L).
           </div>
@@ -449,7 +486,7 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
               </tbody>
             </table>
           </div>
-        )}
+        ))}
       </div>
 
       {/* Grupos de contas */}
@@ -742,6 +779,51 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
                   Cancelar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Limpar importados */}
+      {purgeOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={() => setPurgeOpen(false)}>
+          <div className="bg-slate-900 border border-red-900/50 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-slate-800 shrink-0">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <AlertTriangle size={20} className="text-red-400" /> Limpar contas importadas
+              </h3>
+              <button onClick={() => setPurgeOpen(false)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-lg transition-colors"><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <p className="text-sm text-slate-300">
+                Isso vai <span className="text-red-300 font-semibold">apagar de vez</span> as{' '}
+                <span className="text-white font-semibold">{importedAccounts.length}</span>{' '}
+                {importedAccounts.length === 1 ? 'conta' : 'contas'} abaixo — as que vieram da planilha e{' '}
+                <span className="text-slate-100">não são cadastradas na plataforma</span>. Elas{' '}
+                <span className="text-slate-100">não vão para "Excluídas"</span>. Bancos &amp; investimentos e contas cadastradas <span className="text-slate-100">não são afetados</span>.
+              </p>
+              <div className="rounded-xl border border-slate-800 overflow-hidden">
+                <div className="max-h-64 overflow-y-auto divide-y divide-slate-800/70">
+                  {importedAccounts.map(a => (
+                    <div key={a.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                      <div className="min-w-0">
+                        <span className="text-slate-100 font-medium">{a.name}</span>
+                        <span className="text-slate-500"> · {a.house}{holderName(a) !== '—' ? ` · ${holderName(a)}` : ''}</span>
+                      </div>
+                      <span className="font-mono text-slate-300 shrink-0">{fmtBRL((a.currentBalance || 0) + (a.pendingBalance || 0))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500">Essa ação não pode ser desfeita.</p>
+            </div>
+            <div className="p-6 border-t border-slate-800 flex gap-3 shrink-0">
+              <button onClick={purgeImported} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
+                <Eraser size={18} /> Apagar {importedAccounts.length} {importedAccounts.length === 1 ? 'conta' : 'contas'}
+              </button>
+              <button onClick={() => setPurgeOpen(false)} className="px-6 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors">
+                Cancelar
+              </button>
             </div>
           </div>
         </div>

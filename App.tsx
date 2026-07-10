@@ -605,6 +605,23 @@ const App: React.FC = () => {
       }
   };
 
+  // Exclusão permanente em massa (sem confirm — a tela chamadora já confirma).
+  // Usado pelo "Limpar importados" da aba Saldos: apaga de vez as contas vindas da planilha.
+  const handlePermanentDeleteManyAccounts = async (accountIds: string[]) => {
+      if (!accountIds.length) return;
+      try {
+          for (let i = 0; i < accountIds.length; i += 400) {
+              const chunk = accountIds.slice(i, i + 400);
+              const batch = writeBatch(db);
+              chunk.forEach(id => batch.delete(doc(db, 'accounts', id)));
+              await batch.commit();
+          }
+          addLog(undefined, 'Contas importadas removidas', `${accountIds.length} conta(s) da planilha apagada(s) definitivamente.`);
+      } catch (e: any) {
+          alert(`Erro ao limpar contas importadas: ${e.message}`);
+      }
+  };
+
   const handleMarkReplacement = async (accountId: string, createWithdrawal: boolean, pixInfo?: string) => {
     try {
         const accountToUpdate = accounts.find(a => a.id === accountId);
@@ -1367,6 +1384,8 @@ const App: React.FC = () => {
             onSaveBank={handleSaveBank}
             onDeleteBank={handleDeleteBank}
             onDeleteAccount={handleDeleteAccount}
+            onPermanentDeleteAccount={handlePermanentDeleteAccount}
+            onPurgeImportedAccounts={handlePermanentDeleteManyAccounts}
           />
       )}
       {activeTab === 'BETS' && (

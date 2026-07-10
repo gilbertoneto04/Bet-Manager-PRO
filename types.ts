@@ -201,7 +201,7 @@ export interface Bet {
 }
 
 // Forma de pagamento de um gasto.
-export type PaymentMethod = 'PIX' | 'DEBITO' | 'CREDITO' | 'BOLETO';
+export type PaymentMethod = 'PIX' | 'DINHEIRO' | 'DEBITO' | 'CREDITO' | 'BOLETO';
 
 // Gasto/Despesa avulsa (espelha a aba "Gastos - <mês>" do Sheets).
 // A categoria APOSTAS é o custo da operação e fica separada no Resumo.

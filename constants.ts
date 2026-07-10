@@ -61,12 +61,17 @@ export const MOCK_HOUSES = [
 export const EXPENSE_APOSTAS_CATEGORY = 'APOSTAS';
 
 // Formas de pagamento de um gasto.
-export const PAYMENT_METHODS: { value: 'PIX' | 'DEBITO' | 'CREDITO' | 'BOLETO'; label: string }[] = [
+export const PAYMENT_METHODS: { value: 'PIX' | 'DINHEIRO' | 'DEBITO' | 'CREDITO' | 'BOLETO'; label: string }[] = [
   { value: 'PIX', label: 'Pix' },
+  { value: 'DINHEIRO', label: 'Dinheiro' },
   { value: 'DEBITO', label: 'Débito' },
   { value: 'CREDITO', label: 'Crédito' },
   { value: 'BOLETO', label: 'Boleto' },
 ];
+
+// Tag aplicada a contas/bancos criados pelo importador de saldos (SaldosImport).
+// Permite o "Limpar importados" identificar com precisão o que veio da planilha.
+export const IMPORTED_ACCOUNT_TAG = 'IMPORTADO_PLANILHA';
 export const PAYMENT_METHOD_LABELS: Record<string, string> = PAYMENT_METHODS.reduce((a, m) => { a[m.value] = m.label; return a; }, {} as Record<string, string>);
 
 // Nomes dos meses (usados nas abas Gastos e Resumo).

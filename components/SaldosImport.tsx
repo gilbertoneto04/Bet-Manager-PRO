@@ -7,6 +7,7 @@ import React, { useMemo, useState } from 'react';
 import { Account, Bank, Holder } from '../types';
 import { fmtBRL } from '../finance';
 import { SALDOS_SEED, SaldoSeedRow } from './saldosSeed';
+import { IMPORTED_ACCOUNT_TAG } from '../constants';
 import { X, Upload, Plus, RefreshCw, Landmark, PiggyBank, Check } from 'lucide-react';
 
 interface SaldosImportProps {
@@ -72,7 +73,7 @@ export const SaldosImport: React.FC<SaldosImportProps> = ({ accounts, banks, hol
           onSaveAccount({
             id: '', name: mappedTitular || row.casa, email: '', house: row.casa,
             depositValue: 0, status: row.limitada ? 'LIMITED' : 'ACTIVE',
-            owner: mappedTitular || undefined, holderId: holder?.id, tags: [],
+            owner: mappedTitular || undefined, holderId: holder?.id, tags: [IMPORTED_ACCOUNT_TAG],
             currentBalance: row.saldo, pendingBalance: row.pendente,
             balanceNote: row.nota || undefined, balanceUpdatedAt: now, createdAt: now,
           } as Account);
