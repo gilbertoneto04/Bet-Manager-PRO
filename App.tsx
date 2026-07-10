@@ -1366,6 +1366,7 @@ const App: React.FC = () => {
             onSaveAccount={handleSaveAccount}
             onSaveBank={handleSaveBank}
             onDeleteBank={handleDeleteBank}
+            onDeleteAccount={handleDeleteAccount}
           />
       )}
       {activeTab === 'BETS' && (

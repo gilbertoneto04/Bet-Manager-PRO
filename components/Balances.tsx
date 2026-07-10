@@ -14,7 +14,15 @@ interface BalancesProps {
   onSaveAccount: (account: Account) => void;
   onSaveBank: (bank: Bank) => void;
   onDeleteBank: (bankId: string) => void;
+  onDeleteAccount: (accountId: string, reason: string) => void;
 }
+
+const ACCOUNT_STATUS_OPTIONS: { value: Account['status']; label: string }[] = [
+  { value: 'ACTIVE', label: 'Ativa' },
+  { value: 'LIMITED', label: 'Limitada' },
+  { value: 'REPLACEMENT', label: 'Reposição' },
+  { value: 'DELETED', label: 'Excluída' },
+];
 
 type StatusFilter = 'VISIBLE' | 'ACTIVE' | 'LIMITED' | 'REPLACEMENT' | 'DELETED' | 'ALL';
 type SortKey = 'BALANCE_DESC' | 'BALANCE_ASC' | 'NAME' | 'HOUSE' | 'HOLDER' | 'UPDATED';
@@ -117,7 +125,7 @@ const noteInputClass =
 
 const emptyBank = (): Partial<Bank> => ({ name: '', kind: 'BANK', balance: 0, pendingBalance: 0, note: '', holderId: '', owner: '' });
 
-export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, onSaveAccount, onSaveBank, onDeleteBank }) => {
+export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, onSaveAccount, onSaveBank, onDeleteBank, onDeleteAccount }) => {
   const [search, setSearch] = useState('');
   const [filterHouse, setFilterHouse] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('ACTIVE');
@@ -125,6 +133,7 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
   const [onlyWithBalance, setOnlyWithBalance] = useState(false);
   const [groupBy, setGroupBy] = useState<'HOUSE' | 'HOLDER'>('HOUSE');
   const [bankModal, setBankModal] = useState<Partial<Bank> | null>(null);
+  const [accountModal, setAccountModal] = useState<Account | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // Chave única por grupo (inclui o modo de agrupamento p/ não colidir Casa×Titular)
   const groupId = (key: string) => `${groupBy}:${key}`;
@@ -235,6 +244,30 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
       createdAt: bankModal.createdAt || new Date().toISOString(),
     } as Bank);
     setBankModal(null);
+  };
+
+  const saveAccountFromModal = () => {
+    if (!accountModal) return;
+    if (!accountModal.name || !accountModal.name.trim()) { alert('Informe o nome da conta.'); return; }
+    if (!accountModal.house || !accountModal.house.trim()) { alert('Informe a casa.'); return; }
+    onSaveAccount({
+      ...accountModal,
+      name: accountModal.name.trim(),
+      house: accountModal.house.trim(),
+      owner: accountModal.owner?.trim() || undefined,
+      status: accountModal.status || 'ACTIVE',
+      currentBalance: Number(accountModal.currentBalance) || 0,
+      pendingBalance: Number(accountModal.pendingBalance) || 0,
+      balanceNote: accountModal.balanceNote?.trim() || undefined,
+      balanceUpdatedAt: new Date().toISOString(),
+    });
+    setAccountModal(null);
+  };
+
+  const deleteAccount = (a: Account) => {
+    const reason = prompt(`Excluir a conta "${a.name}" (${a.house})?\n\nA conta vai para "Excluídas" (não é apagada de vez). Informe o motivo:`, '');
+    if (reason === null) return; // cancelou
+    onDeleteAccount(a.id, reason.trim());
   };
 
   const SummaryCard = ({ icon: Icon, label, value, accent }: { icon: any; label: string; value: string; accent: string }) => (
@@ -469,7 +502,8 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
                       <th className="text-right font-semibold px-3 py-2">Saldo (R$)</th>
                       <th className="text-right font-semibold px-3 py-2">Pendente (R$)</th>
                       <th className="text-left font-semibold px-3 py-2">Observação</th>
-                      <th className="text-right font-semibold px-5 py-2">Atualizado</th>
+                      <th className="text-right font-semibold px-3 py-2">Atualizado</th>
+                      <th className="text-right font-semibold px-5 py-2">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/70">
@@ -513,8 +547,16 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
                             className={noteInputClass}
                           />
                         </td>
-                        <td className="px-5 py-2.5 text-right text-[10px] text-slate-500 whitespace-nowrap">
+                        <td className="px-3 py-2.5 text-right text-[10px] text-slate-500 whitespace-nowrap">
                           {a.balanceUpdatedAt ? new Date(a.balanceUpdatedAt).toLocaleDateString('pt-BR') : '—'}
+                        </td>
+                        <td className="px-5 py-2.5">
+                          <div className="flex items-center justify-end gap-1">
+                            <button onClick={() => setAccountModal({ ...a })} className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors" title="Editar conta"><Pencil size={14} /></button>
+                            {a.status !== 'DELETED' && (
+                              <button onClick={() => deleteAccount(a)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors" title="Excluir conta"><Trash2 size={14} /></button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -600,6 +642,103 @@ export const Balances: React.FC<BalancesProps> = ({ accounts, holders, banks, on
                   <Save size={18} /> Salvar
                 </button>
                 <button onClick={() => setBankModal(null)} className="px-6 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Conta */}
+      {accountModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn" onClick={() => setAccountModal(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-slate-800">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <Wallet size={20} className="text-indigo-400" /> Editar Conta
+              </h3>
+              <button onClick={() => setAccountModal(null)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-lg transition-colors"><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-400">Nome da conta *</label>
+                <input
+                  type="text" autoFocus
+                  value={accountModal.name || ''}
+                  onChange={e => setAccountModal({ ...accountModal, name: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-400">Casa *</label>
+                  <input
+                    type="text" list="balances-house-options"
+                    value={accountModal.house || ''}
+                    onChange={e => setAccountModal({ ...accountModal, house: e.target.value })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                  <datalist id="balances-house-options">
+                    {houseOptions.map(h => <option key={h} value={h} />)}
+                  </datalist>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-400">Titular</label>
+                  <input
+                    type="text"
+                    value={accountModal.owner || ''}
+                    onChange={e => setAccountModal({ ...accountModal, owner: e.target.value })}
+                    placeholder="—"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-400">Status</label>
+                <select
+                  value={accountModal.status || 'ACTIVE'}
+                  onChange={e => setAccountModal({ ...accountModal, status: e.target.value as Account['status'] })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                >
+                  {ACCOUNT_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-400">Saldo (R$)</label>
+                  <input
+                    type="number" step="0.01"
+                    value={accountModal.currentBalance ?? 0}
+                    onChange={e => setAccountModal({ ...accountModal, currentBalance: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-400">Pendente (R$)</label>
+                  <input
+                    type="number" step="0.01"
+                    value={accountModal.pendingBalance ?? 0}
+                    onChange={e => setAccountModal({ ...accountModal, pendingBalance: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-400">Observação</label>
+                <input
+                  type="text"
+                  value={accountModal.balanceNote || ''}
+                  onChange={e => setAccountModal({ ...accountModal, balanceNote: e.target.value })}
+                  placeholder="Ex.: Sacar, Depositar, Conta bloqueada..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <div className="pt-2 flex gap-3">
+                <button onClick={saveAccountFromModal} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
+                  <Save size={18} /> Salvar
+                </button>
+                <button onClick={() => setAccountModal(null)} className="px-6 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 rounded-xl transition-colors">
                   Cancelar
                 </button>
               </div>
